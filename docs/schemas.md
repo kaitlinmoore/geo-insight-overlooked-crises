@@ -114,7 +114,7 @@ Plan/appeal-level requirements vs funding by country.
 | `funding` | float | yes (~99%) | Funding received USD. |
 | `percentFunded` | float | yes (~31%) | OCHA-computed % (whole number). |
 
-**Quirk**: rows split between *plan-level* (has `code`) and *country-aggregate* (`code` null, `name='Not specified'`). Silver must pick one grain to avoid double-counting; v1 uses plan-level rows joined to `bronze_hrp`.
+**Quirk**: rows split between *plan-level* (has `code`) and *country-aggregate* (`code` null, `name='Not specified'`). v1 carries both grains downstream — see `silver_requirements` and the 2026-05-22 DECISIONS entry. The country-aggregate rows are attributed directly to the country (not via cascade) and tagged `plan_code IS NULL` so they don't double-count with plan-level rows.
 
 ## bronze_fts_cluster  ✅ profiled
 
@@ -210,6 +210,7 @@ Monthly INFORM Severity snapshots (ACAPS). The hardest Bronze source — each fi
   - `INFORM Severity - all crises` (≈130 rows) — includes sub-country / multiple crises per country.
 - **Grain**: snapshot_month × crisis. **PK**: (`snapshot_date`, `CRISIS ID`).
 - **Header quirk**: real headers are on the **2nd row**; rows labelled `Weights` and the `(1-10)`/`(1-5)` range annotations sit above the data — skip them on read.
+- **⚠️ Sheet-name dispatch**: 20 of 89 files (Jan 2019 – Aug 2020) carry the data on the `GCSI` sheet rather than `INFORM Severity - country`. Bronze loader reads `INFORM Severity - country` if present, otherwise falls back to `GCSI`. Downstream schema is identical after dropping the row-3 `Weights` marker row.
 
 | Column (cleaned) | Type | Notes |
 |---|---|---|
@@ -418,6 +419,7 @@ Cleaned, country-attributed funding flows.
 | `allocation_weight` | double | Fraction of source flow assigned to this country (Σ over splits = 1). |
 
 - **Transforms**: (1) dedupe `onBoundary='shared'` flows so a shared incoming/outgoing pair isn't counted twice; (2) explode `destLocations` comma-list; (3) apply the 4-step allocation cascade from `methodology.md`; (4) cast USD to double, dates to date.
+  - **Cascade distribution (profiled)**: in the profiled data, the cascade distribution is approximately 68.5% `country_tagged` (single-country flows), <0.1% `requirements_weighted`, ~31% `population_weighted_fallback`, with a small `regional_unattributed` tail. Surface this distribution on the Methodology screen as transparency about how multi-country flows are allocated.
 - **DLT**: `expect_or_drop` valid_status (`status IN ('paid','commitment','pledge')`); `expect_or_drop` non_negative (`amount_usd >= 0`); `expect_or_drop` valid_iso3; `expect` weights_sum_to_one (per `source_flow_id`, Σ`allocation_weight` ≈ 1); `expect` no_shared_double_count.
 
 ## silver_needs  🟡 (country × year × sector from HNO)
@@ -440,6 +442,7 @@ Cleaned, country-attributed funding flows.
 - **Source**: `bronze_hrp` + `bronze_fts_plan`. **Grain**: country × year × plan. **PK**: (`iso3`, `year`, `plan_code`).
 - **Columns**: `iso3`, `year`, `plan_code`, `plan_name`, `plan_type`, `requirement_usd` (double, from `revisedRequirements`), `is_multi_country` (bool), `country_list` (array<string>, from pipe-split `locations`), `start_date`, `end_date`.
 - **Transforms**: pipe-split `locations`→array; mark multi-country; prefer `revisedRequirements`, fall back to `origRequirements`.
+  - **Dual grain**: carry two row types: (a) plan-level rows joined `bronze_fts_plan` ↔ `bronze_hrp` on `code`, attributed to country via the multi-country cascade where the plan covers multiple countries; (b) country-aggregate rows from `bronze_fts_plan` where `code IS NULL` and `name='Not specified'`, attributed directly to `countryCode` with `plan_code = NULL`. Both flow into `gold_funding_funnel` and `gold_forgotten_crisis_index` so no-HRP countries retain their off-plan funding signal.
 - **DLT**: `expect_or_drop` non_negative_requirement; `expect_or_drop` valid_dates (`end_date >= start_date`); `expect` plan_code_unique_per_year.
 
 ## silver_severity  🟡 (country × year from INFORM)

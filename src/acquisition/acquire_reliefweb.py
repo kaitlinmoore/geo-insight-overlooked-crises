@@ -1,53 +1,66 @@
 """Acquire ReliefWeb situation reports / analyses / assessments into local staging.
 
-Source: ReliefWeb API (OCHA's humanitarian information portal).
-  Endpoint: https://api.reliefweb.int/v2/reports   (v1 was decommissioned 2025; v2
-  is fully compatible with v1 — same POST query structure and field names.)
+Source: ReliefWeb API v2 (OCHA's humanitarian information portal).
+  Endpoint: https://api.reliefweb.int/v2/reports
   Docs: https://apidoc.reliefweb.int
 
-These documents feed an OPTIONAL Day-4 Knowledge Assistant indexing step. They go
-to Bronze regardless of whether they are ever indexed. This is a one-off local
-acquisition into ./staging/ (gitignored); it does not touch Databricks.
+Two deliverables, mapped to the two project purposes:
+
+  STAGE 1 - metadata index + media-attention signal  [REQUIRED for v1]
+    Paginates the full list of matching reports per country across the lookback
+    window and writes:
+      ./staging/reliefweb_metadata.csv          (one row per report)
+      ./staging/reliefweb_media_attention.csv   (iso3 x year_month -> report_count)
+    The per-country x month count is the negative-weighted "attention" proxy in
+    the composite overlooked-crises score.
+
+  STAGE 2 - body-text corpus  [OPTIONAL, Day-4 Knowledge Assistant]
+    Pulls up to PER_COUNTRY_LIMIT (20) most-recent docs per country (global cap
+    GLOBAL_CAP=500), full body text, one JSON per doc:
+      ./staging/reliefweb_docs/{iso3}/{date}_{id}.json
+
+This is a one-off LOCAL acquisition into ./staging/ (gitignored); it does not
+touch Databricks.
+
+WHY THE API, NOT SCRAPING
+-------------------------
+The public HTML site (reliefweb.int) sits behind an AWS WAF JavaScript challenge
+(every page returns HTTP 202 + `x-amzn-waf-action: challenge`; a plain HTTP
+client never receives content). The v1 API is decommissioned (HTTP 410). The v2
+API is the only viable, sanctioned path. See docs/notes/acquisition_reliefweb.md.
 
 APPNAME REQUIREMENT (blocker if unset)
 --------------------------------------
-From 1 November 2025 the ReliefWeb API requires a *pre-approved* appname. An
-arbitrary string returns HTTP 403. Request one (reviewed + emailed back by
-ReliefWeb) via the form linked at:
+From 2025-11-01 the ReliefWeb API requires a *pre-approved* appname. An arbitrary
+string returns HTTP 403. Request one via the form at
   https://apidoc.reliefweb.int/parameters#appname
-ReliefWeb recommends the form "<org>-<purpose>-<random>", e.g.
-  geo-insight-hackathon-knowledge-assistant-7f3a
-Then put it in a local .env at the repo root (see .env.example):
+(form suggests "<org>-<purpose>-<random>", e.g.
+ geo-insight-hackathon-knowledge-assistant-7f3a). Then add to a repo-root .env:
   RELIEFWEB_APPNAME=...
-This script reads .env without requiring python-dotenv (simple line parser);
-an OS environment variable of the same name takes precedence.
+An OS environment variable of the same name takes precedence.
 
-What it does
-------------
-For each of FOCUS_COUNTRIES (25 ISO3 codes — overlooked focus + reference crises
-for demo contrast), query the API for:
-  - format.name in {"Situation Report", "Analysis", "Assessment"}
-  - date.original within the last LOOKBACK_MONTHS months
-  - language English, status published
-Pulls up to PER_COUNTRY_LIMIT (20) most-recent docs per country, with a global
-cap of GLOBAL_CAP (500). Each doc is written as one JSON file:
-  ./staging/reliefweb_docs/{iso3}/{date}_{id}.json
-containing: id, title, country (primary), iso3, date, source organisation(s),
-format, language, url, body (markdown text), body_html, plus the query context.
+USAGE
+-----
+  python acquire_reliefweb.py --check   # one request: verify the appname works
+  python acquire_reliefweb.py           # full run: stage 1 then stage 2
+  python acquire_reliefweb.py --stage1  # metadata + attention signal only
+  python acquire_reliefweb.py --stage2  # body-text corpus only
 
-Countries returning 0 docs / HTTP errors are logged and skipped; the run
-continues. A final summary prints per-country counts, date-range coverage, and
-an aggregate body-length distribution so we can sanity-check that docs are
-substantive rather than 200-word stubs. For the first country (SDN) it also
-prints 2 sample titles and the first 200 chars of body as a quality check.
+STATUS: written and self-consistent, but NOT yet verified against the live API
+(blocked on appname approval as of 2026-05-22). The response-shape handling
+(facets aside; counts are derived from list rows) is defensive, but field names
+and the format taxonomy strings should be confirmed on the first successful run.
 """
 
 from __future__ import annotations
 
+import argparse
+import csv
 import json
+import os
 import sys
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -56,6 +69,9 @@ import requests
 # --- Configuration ---------------------------------------------------------
 API_URL = "https://api.reliefweb.int/v2/reports"
 
+CONTACT_EMAIL = "6ingeraffe@gmail.com"
+USER_AGENT = f"Geo-Insight-UNOCHA-Hackathon/1.0 (contact: {CONTACT_EMAIL})"
+
 # Top-25 focus list: overlooked focus + reference crises for demo contrast.
 FOCUS_COUNTRIES = [
     "SDN", "YEM", "MMR", "BFA", "MLI", "NER", "TCD", "COD", "SSD", "COL",
@@ -63,40 +79,64 @@ FOCUS_COUNTRIES = [
     "HND", "GTM", "CMR", "CAF", "MOZ",
 ]
 
+# Long-form country names for the metadata CSV (API also returns these; this is
+# a local fallback so the CSV is populated even if a row lacks the field).
+COUNTRY_NAMES = {
+    "SDN": "Sudan", "YEM": "Yemen", "MMR": "Myanmar", "BFA": "Burkina Faso",
+    "MLI": "Mali", "NER": "Niger", "TCD": "Chad",
+    "COD": "Democratic Republic of the Congo", "SSD": "South Sudan",
+    "COL": "Colombia", "VEN": "Venezuela", "HTI": "Haiti", "AFG": "Afghanistan",
+    "ETH": "Ethiopia", "SOM": "Somalia", "NGA": "Nigeria",
+    "SYR": "Syrian Arab Republic", "UKR": "Ukraine",
+    "PSE": "occupied Palestinian territory", "PHL": "Philippines",
+    "HND": "Honduras", "GTM": "Guatemala", "CMR": "Cameroon",
+    "CAF": "Central African Republic", "MOZ": "Mozambique",
+}
+
 FORMATS = ["Situation Report", "Analysis", "Assessment"]
 LOOKBACK_MONTHS = 36
-PER_COUNTRY_LIMIT = 20
-GLOBAL_CAP = 500
-REQUEST_PAUSE_SEC = 0.5  # polite spacing between API calls
+PER_COUNTRY_LIMIT = 20            # stage 2 body-text cap per country
+GLOBAL_CAP = 500                  # stage 2 global doc cap
+PAGE_SIZE = 1000                  # v2 max page size for the stage-1 index
+SCRAPER_VERSION = "1.0"
+
+# Polite HTTP practice (the API has no published rate limit; we self-throttle).
+MIN_INTERVAL_SEC = 1.0            # >= 1 request / second across the whole run
+BACKOFF_START_SEC = 60           # exponential backoff base for 429 / 503
+BACKOFF_MAX_RETRIES = 4
 TIMEOUT_SEC = 60
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-OUT_DIR = REPO_ROOT / "staging" / "reliefweb_docs"
+# Date field used for filtering / bucketing. date.original = original publication
+# date of the document; falls back to date.created in filename/bucket logic.
+DATE_FIELD = "date.original"
+# Country association used for attribution. country.iso3 = any tagged country
+# (matches the public country-page semantics, more inclusive); switch to
+# "primary_country.iso3" to count each report against a single country only.
+COUNTRY_FIELD = "country.iso3"
 
-# Fields requested from the API (v2 == v1 field names).
-INCLUDE_FIELDS = [
-    "id", "title", "status", "url", "url_alias",
+REPO_ROOT = Path(__file__).resolve().parents[2]
+STAGING = REPO_ROOT / "staging"
+DOCS_DIR = STAGING / "reliefweb_docs"
+METADATA_CSV = STAGING / "reliefweb_metadata.csv"
+ATTENTION_CSV = STAGING / "reliefweb_media_attention.csv"
+
+INCLUDE_FIELDS_LIST = [
+    "id", "title", "url", "url_alias",
     "date.original", "date.created",
     "source.name", "source.shortname",
     "format.name", "language.name",
     "primary_country.iso3", "primary_country.name",
     "country.iso3", "country.name",
-    "body", "body-html",
 ]
+INCLUDE_FIELDS_FULL = INCLUDE_FIELDS_LIST + ["body", "body-html"]
 
 
+# --- appname resolution ----------------------------------------------------
 def load_appname() -> str:
-    """Resolve RELIEFWEB_APPNAME from the OS env or a repo-root .env file.
-
-    OS environment wins. Avoids a python-dotenv dependency with a minimal
-    KEY=VALUE line parser (ignores blanks and #comments, strips quotes).
-    """
-    import os
-
+    """Resolve RELIEFWEB_APPNAME from the OS env or a repo-root .env file."""
     val = os.environ.get("RELIEFWEB_APPNAME")
     if val:
         return val.strip()
-
     env_path = REPO_ROOT / ".env"
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():
@@ -109,36 +149,74 @@ def load_appname() -> str:
     return ""
 
 
-def build_query(iso3: str, date_from: str, date_to: str) -> dict:
-    """POST body for one country: filtered, most-recent-first, profile=full."""
+# --- polite HTTP layer -----------------------------------------------------
+class Forbidden(Exception):
+    """HTTP 403 - appname not approved; abort the whole run immediately."""
+
+
+class PoliteClient:
+    """A requests.Session wrapper: fixed User-Agent, >=1 req/sec spacing, and
+    exponential backoff on 429/503. A 403 raises Forbidden (caller aborts)."""
+
+    def __init__(self, appname: str):
+        self.appname = appname
+        self.session = requests.Session()
+        self.session.headers["User-Agent"] = USER_AGENT
+        self._last_request_ts = 0.0
+
+    def _throttle(self) -> None:
+        elapsed = time.monotonic() - self._last_request_ts
+        if elapsed < MIN_INTERVAL_SEC:
+            time.sleep(MIN_INTERVAL_SEC - elapsed)
+
+    def post(self, body: dict) -> dict:
+        backoff = BACKOFF_START_SEC
+        for attempt in range(BACKOFF_MAX_RETRIES + 1):
+            self._throttle()
+            resp = self.session.post(
+                API_URL, params={"appname": self.appname},
+                json=body, timeout=TIMEOUT_SEC,
+            )
+            self._last_request_ts = time.monotonic()
+
+            if resp.status_code == 403:
+                raise Forbidden(resp.text[:300])
+            if resp.status_code in (429, 503):
+                if attempt == BACKOFF_MAX_RETRIES:
+                    resp.raise_for_status()
+                print(f"    HTTP {resp.status_code} - backing off {backoff}s "
+                      f"(attempt {attempt + 1}/{BACKOFF_MAX_RETRIES})")
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            resp.raise_for_status()
+            return resp.json()
+        raise RuntimeError("unreachable")
+
+
+# --- shared helpers --------------------------------------------------------
+def window() -> tuple[str, str]:
+    now = datetime.now(timezone.utc)
+    to = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    frm = (now - timedelta(days=LOOKBACK_MONTHS * 30)).strftime(
+        "%Y-%m-%dT%H:%M:%S+00:00")
+    return frm, to
+
+
+def base_filter(iso3: str, date_from: str, date_to: str) -> dict:
     return {
-        "limit": PER_COUNTRY_LIMIT,
-        "profile": "full",
-        "sort": ["date.original:desc"],
-        "filter": {
-            "operator": "AND",
-            "conditions": [
-                {"field": "primary_country.iso3", "value": iso3},
-                {"field": "format.name", "value": FORMATS},
-                {"field": "language.name", "value": "English"},
-                {"field": "status", "value": "published"},
-                {"field": "date.original",
-                 "value": {"from": date_from, "to": date_to}},
-            ],
-        },
-        "fields": {"include": INCLUDE_FIELDS},
+        "operator": "AND",
+        "conditions": [
+            {"field": COUNTRY_FIELD, "value": iso3},
+            {"field": "format.name", "value": FORMATS},
+            {"field": "language.name", "value": "English"},
+            {"field": "status", "value": "published"},
+            {"field": DATE_FIELD, "value": {"from": date_from, "to": date_to}},
+        ],
     }
 
 
-def doc_date(fields: dict) -> str:
-    """YYYY-MM-DD for the filename: prefer date.original, fall back to created."""
-    date = fields.get("date", {}) or {}
-    raw = date.get("original") or date.get("created") or ""
-    return raw[:10] if raw else "undated"
-
-
 def names(value) -> list[str]:
-    """Extract .name values from a list-of-dicts API field (source/format/etc.)."""
     if isinstance(value, list):
         return [v.get("name", "") for v in value if isinstance(v, dict)]
     if isinstance(value, dict):
@@ -146,194 +224,273 @@ def names(value) -> list[str]:
     return []
 
 
-def record_from(fields: dict, iso3: str, ctx: dict) -> dict:
-    """Shape the saved JSON: the task-required fields plus query context."""
+def fields_of(item: dict) -> dict:
+    f = item.get("fields", {}) or {}
+    f.setdefault("id", item.get("id"))
+    return f
+
+
+def pub_date(fields: dict) -> str:
+    date = fields.get("date", {}) or {}
+    raw = date.get("original") or date.get("created") or ""
+    return raw[:10] if raw else "undated"
+
+
+# --- STAGE 1: metadata index + media-attention counts ----------------------
+def fetch_index_page(client: PoliteClient, iso3: str, frm: str, to: str,
+                     offset: int) -> dict:
+    return client.post({
+        "limit": PAGE_SIZE,
+        "offset": offset,
+        "profile": "list",
+        "sort": [f"{DATE_FIELD}:desc"],
+        "filter": base_filter(iso3, frm, to),
+        "fields": {"include": INCLUDE_FIELDS_LIST},
+    })
+
+
+def run_stage1(client: PoliteClient, frm: str, to: str) -> None:
+    print("=" * 60)
+    print("STAGE 1 - metadata index + media-attention signal")
+    print("=" * 60)
+    rows: list[dict] = []
+    counts: dict[tuple[str, str], int] = defaultdict(int)  # (iso3, ym) -> n
+    per_country_total: dict[str, int] = {}
+
+    for iso3 in FOCUS_COUNTRIES:
+        offset, total = 0, None
+        before = len(rows)
+        while True:
+            try:
+                data = fetch_index_page(client, iso3, frm, to, offset)
+            except Forbidden:
+                raise
+            except requests.RequestException as e:
+                print(f"  {iso3}: {type(e).__name__} at offset {offset} "
+                      f"- partial, moving on")
+                break
+            total = data.get("totalCount", 0)
+            items = data.get("data", []) or []
+            if not items:
+                break
+            for it in items:
+                f = fields_of(it)
+                date = pub_date(f)
+                rows.append({
+                    "iso3": iso3,
+                    "country_name": COUNTRY_NAMES.get(iso3, iso3),
+                    "title": f.get("title", ""),
+                    "publication_date": date,
+                    "format": "; ".join(names(f.get("format"))),
+                    "source_organization": "; ".join(names(f.get("source"))),
+                    "report_url": f.get("url") or f.get("url_alias") or "",
+                })
+                if date != "undated":
+                    counts[(iso3, date[:7])] += 1
+            offset += len(items)
+            if offset >= (total or 0):
+                break
+        n = len(rows) - before
+        per_country_total[iso3] = n
+        print(f"  {iso3}: {n} reports (totalCount={total})")
+
+    METADATA_CSV.parent.mkdir(parents=True, exist_ok=True)
+    with METADATA_CSV.open("w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=[
+            "iso3", "country_name", "title", "publication_date",
+            "format", "source_organization", "report_url"])
+        w.writeheader()
+        w.writerows(rows)
+
+    with ATTENTION_CSV.open("w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["iso3", "year_month", "report_count"])
+        for (iso3, ym) in sorted(counts):
+            w.writerow([iso3, ym, counts[(iso3, ym)]])
+
+    print(f"\n  wrote {len(rows)} rows -> {METADATA_CSV.name}")
+    print(f"  wrote {len(counts)} (country x month) cells -> {ATTENTION_CSV.name}")
+    zero = [c for c in FOCUS_COUNTRIES if per_country_total.get(c, 0) == 0]
+    if zero:
+        print(f"  SUSPICIOUS: zero reports for {zero} - investigate "
+              f"(high-volume crises should not be empty)")
+
+
+# --- STAGE 2: body-text corpus ---------------------------------------------
+def fetch_bodies(client: PoliteClient, iso3: str, frm: str, to: str) -> dict:
+    return client.post({
+        "limit": PER_COUNTRY_LIMIT,
+        "profile": "full",
+        "sort": [f"{DATE_FIELD}:desc"],
+        "filter": base_filter(iso3, frm, to),
+        "fields": {"include": INCLUDE_FIELDS_FULL},
+    })
+
+
+def doc_record(fields: dict, iso3: str, acquired_at: str) -> dict:
     primary = fields.get("primary_country", {}) or {}
-    if isinstance(primary, list):  # API may return a single-element list
+    if isinstance(primary, list):
         primary = primary[0] if primary else {}
+    body = fields.get("body", "") or ""
     return {
-        "id": fields.get("id"),
+        "iso3": primary.get("iso3", iso3) or iso3,
+        "country_name": primary.get("name") or COUNTRY_NAMES.get(iso3, iso3),
         "title": fields.get("title"),
-        "country": primary.get("name"),
-        "iso3": primary.get("iso3", iso3),
-        "all_countries": names(fields.get("country")),
-        "date": doc_date(fields),
-        "date_original": (fields.get("date", {}) or {}).get("original"),
-        "date_created": (fields.get("date", {}) or {}).get("created"),
+        "publication_date": pub_date(fields),
+        "format": (names(fields.get("format")) or [""])[0],
         "source_organization": names(fields.get("source")),
-        "format": names(fields.get("format")),
-        "language": names(fields.get("language")),
-        "status": fields.get("status"),
-        "url": fields.get("url") or fields.get("url_alias"),
-        "body": fields.get("body", "") or "",
+        "report_url": fields.get("url") or fields.get("url_alias"),
+        "body_text": body,
+        "body_word_count": len(body.split()),
+        "scraped_at": acquired_at,
+        "scraper_version": SCRAPER_VERSION,
+        # extra context (not in the brief's schema, but cheap to keep):
+        "report_id": fields.get("id"),
         "body_html": fields.get("body-html", "") or "",
-        "_query_country": iso3,
-        "_acquired_at": ctx["acquired_at"],
-        "_api_url": API_URL,
-        "_appname": ctx["appname"],
+        "all_countries": names(fields.get("country")),
     }
 
 
-def fetch_country(appname: str, iso3: str, date_from: str, date_to: str) -> dict:
-    """Return the API JSON for one country. Raises on HTTP/transport error."""
-    resp = requests.post(
-        API_URL,
-        params={"appname": appname},
-        json=build_query(iso3, date_from, date_to),
-        timeout=TIMEOUT_SEC,
-    )
-    resp.raise_for_status()
-    return resp.json()
+def run_stage2(client: PoliteClient, frm: str, to: str) -> None:
+    print("\n" + "=" * 60)
+    print("STAGE 2 - body-text corpus")
+    print("=" * 60)
+    acquired_at = datetime.now(timezone.utc).isoformat()
+    DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
-
-def main() -> int:
-    appname = load_appname()
-    if not appname:
-        print("ERROR: RELIEFWEB_APPNAME is not set.", file=sys.stderr)
-        print("The ReliefWeb v2 API requires a PRE-APPROVED appname (since "
-              "2025-11-01).", file=sys.stderr)
-        print("  1. Request one: https://apidoc.reliefweb.int/parameters#appname",
-              file=sys.stderr)
-        print("     (form suggests '<org>-<purpose>-<random>'; ReliefWeb emails "
-              "back an approval)", file=sys.stderr)
-        print("  2. Add to a repo-root .env:  RELIEFWEB_APPNAME=...", file=sys.stderr)
-        print("  3. Re-run this script.", file=sys.stderr)
-        return 2
-
-    now = datetime.now(timezone.utc)
-    date_to = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-    date_from = (now - timedelta(days=LOOKBACK_MONTHS * 30)).strftime(
-        "%Y-%m-%dT%H:%M:%S+00:00")
-    ctx = {"acquired_at": now.isoformat(), "appname": appname}
-
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"ReliefWeb acquisition -> {OUT_DIR}")
-    print(f"Window: {date_from[:10]} .. {date_to[:10]}  "
-          f"({LOOKBACK_MONTHS} months) | up to {PER_COUNTRY_LIMIT}/country, "
-          f"cap {GLOBAL_CAP}\n")
-
-    saved_per_country: dict[str, int] = {}
-    skipped: list[tuple[str, str]] = []  # (iso3, reason)
-    body_lengths: list[int] = []
-    all_dates: list[str] = []
-    total_saved = 0
-    sdn_samples: list[tuple[str, str]] = []  # (title, body) for quality check
+    per_country: dict[str, int] = {}
+    skipped: list[tuple[str, str]] = []
+    word_counts: list[int] = []
+    samples: dict[str, tuple[str, str]] = {}  # iso3 -> (title, body) for SDN/YEM
+    total = 0
 
     for iso3 in FOCUS_COUNTRIES:
-        if total_saved >= GLOBAL_CAP:
+        if total >= GLOBAL_CAP:
             skipped.append((iso3, "global cap reached"))
             continue
-
         try:
-            data = fetch_country(appname, iso3, date_from, date_to)
-        except requests.HTTPError as e:
-            code = e.response.status_code if e.response is not None else "?"
-            skipped.append((iso3, f"HTTP {code}"))
-            print(f"  {iso3}: HTTP {code} — logged and skipped")
-            if code == 403:  # appname rejected: no point hammering 24 more times
-                print("  (HTTP 403 = appname not approved; aborting run)")
-                break
-            time.sleep(REQUEST_PAUSE_SEC)
-            continue
+            data = fetch_bodies(client, iso3, frm, to)
+        except Forbidden:
+            raise
         except requests.RequestException as e:
-            skipped.append((iso3, f"transport error: {type(e).__name__}"))
-            print(f"  {iso3}: {type(e).__name__} — logged and skipped")
-            time.sleep(REQUEST_PAUSE_SEC)
+            skipped.append((iso3, type(e).__name__))
+            print(f"  {iso3}: {type(e).__name__} - skipped")
             continue
 
         items = data.get("data", []) or []
         if not items:
-            skipped.append((iso3, "no docs returned"))
+            skipped.append((iso3, "no docs"))
             print(f"  {iso3}: 0 docs (totalCount={data.get('totalCount')})")
-            time.sleep(REQUEST_PAUSE_SEC)
             continue
 
-        country_dir = OUT_DIR / iso3
-        country_dir.mkdir(parents=True, exist_ok=True)
-        count = 0
-        for item in items:
-            if total_saved >= GLOBAL_CAP:
+        cdir = DOCS_DIR / iso3
+        cdir.mkdir(parents=True, exist_ok=True)
+        n = 0
+        for it in items:
+            if total >= GLOBAL_CAP:
                 break
-            fields = item.get("fields", {}) or {}
-            fields.setdefault("id", item.get("id"))
-            rec = record_from(fields, iso3, ctx)
-
-            fname = f"{rec['date']}_{rec['id']}.json"
-            (country_dir / fname).write_text(
+            rec = doc_record(fields_of(it), iso3, acquired_at)
+            (cdir / f"{rec['publication_date']}_{rec['report_id']}.json").write_text(
                 json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
+            word_counts.append(rec["body_word_count"])
+            if iso3 in ("SDN", "YEM") and iso3 not in samples:
+                samples[iso3] = (rec["title"] or "(no title)", rec["body_text"])
+            n += 1
+            total += 1
+        per_country[iso3] = n
+        print(f"  {iso3}: saved {n} (totalCount={data.get('totalCount')})")
 
-            body_lengths.append(len(rec["body"]))
-            all_dates.append(rec["date"])
-            if iso3 == "SDN" and len(sdn_samples) < 2:
-                sdn_samples.append((rec["title"] or "(no title)", rec["body"]))
-            count += 1
-            total_saved += 1
+    stage2_summary(per_country, skipped, word_counts, samples, total)
 
-        saved_per_country[iso3] = count
-        print(f"  {iso3}: saved {count} "
-              f"(totalCount={data.get('totalCount')})")
-        time.sleep(REQUEST_PAUSE_SEC)
 
-    # --- Summary -----------------------------------------------------------
-    print("\n" + "=" * 60)
-    print("ACQUISITION SUMMARY")
-    print("=" * 60)
-    print(f"Total docs saved: {total_saved}  "
-          f"(across {len(saved_per_country)} countries)")
-
-    print("\nDocs per country:")
-    for iso3 in FOCUS_COUNTRIES:
-        if iso3 in saved_per_country:
-            print(f"  {iso3}: {saved_per_country[iso3]}")
+def stage2_summary(per_country, skipped, word_counts, samples, total) -> None:
+    print("\n" + "-" * 60)
+    print(f"Stage 2 total docs: {total} across {len(per_country)} countries")
     if skipped:
-        print(f"\nSkipped / empty ({len(skipped)}):")
+        print("Skipped / empty:")
         for iso3, reason in skipped:
             print(f"  {iso3}: {reason}")
-
-    dated = sorted(d for d in all_dates if d != "undated")
-    if dated:
-        n_undated = sum(1 for d in all_dates if d == "undated")
-        print(f"\nDate-range coverage: {dated[0]} .. {dated[-1]}"
-              + (f"  ({n_undated} undated)" if n_undated else ""))
-        year_hist = Counter(d[:4] for d in dated)
-        print("  by year: " + ", ".join(
-            f"{y}:{year_hist[y]}" for y in sorted(year_hist)))
-
-    if body_lengths:
-        body_lengths.sort()
-        n = len(body_lengths)
-        def pct(p: float) -> int:
-            return body_lengths[min(n - 1, int(p * n))]
-        stubs = sum(1 for b in body_lengths if b < 500)
-        print(f"\nBody-length distribution (chars, n={n}):")
-        print(f"  min={body_lengths[0]}  p25={pct(0.25)}  median={pct(0.50)}  "
-              f"p75={pct(0.75)}  p90={pct(0.90)}  max={body_lengths[-1]}")
-        print(f"  mean={sum(body_lengths)//n}  "
-              f"empty(0 chars)={sum(1 for b in body_lengths if b == 0)}  "
-              f"stubs(<500 chars)={stubs}")
-        if stubs > n * 0.5:
-            print("  FLAG: >50% of docs are <500 chars — bodies may be "
-                  "truncated/boilerplate; revisit the query (profile/fields).")
-
-    # --- Quality check: SDN ------------------------------------------------
-    print("\n" + "-" * 60)
-    print("QUALITY CHECK — first country (SDN), 2 sample docs:")
-    print("-" * 60)
-    if not sdn_samples:
-        print("  No SDN docs were saved — cannot run the body sanity check.")
-        print("  FLAG: investigate SDN query (it should be a high-volume "
-              "country).")
-    else:
-        for i, (title, body) in enumerate(sdn_samples, 1):
+    if word_counts:
+        word_counts.sort()
+        n = len(word_counts)
+        def pct(p): return word_counts[min(n - 1, int(p * n))]
+        short = sum(1 for w in word_counts if w < 100)
+        print(f"\nBody word-count distribution (n={n}):")
+        print(f"  min={word_counts[0]}  p25={pct(.25)}  median={pct(.50)}  "
+              f"p75={pct(.75)}  p90={pct(.90)}  max={word_counts[-1]}")
+        print(f"  empty={sum(1 for w in word_counts if w == 0)}  "
+              f"short(<100 words)={short}")
+    print("\nQuality check - most recent SDN & YEM doc (first 200 chars):")
+    for iso3 in ("SDN", "YEM"):
+        if iso3 in samples:
+            title, body = samples[iso3]
             head = " ".join((body or "").split())[:200]
-            print(f"  [{i}] title: {title}")
-            print(f"      body[:200]: {head!r}")
-            print(f"      body length: {len(body)} chars")
-        if all(len(b) < 200 for _, b in sdn_samples):
-            print("\n  FLAG: SDN sample bodies are < 200 chars / empty. The API "
-                  "query may need adjustment (check profile='full' and that "
-                  "'body' is in fields.include).")
+            print(f"  [{iso3}] {title}")
+            print(f"        {head!r}")
+        else:
+            print(f"  [{iso3}] no doc saved - investigate (high-volume country)")
 
+
+# --- check mode ------------------------------------------------------------
+def run_check(client: PoliteClient) -> int:
+    print(f"Checking appname against {API_URL} ...")
+    try:
+        data = client.post({"limit": 1, "profile": "list",
+                            "fields": {"include": ["id", "title"]}})
+    except Forbidden as e:
+        print("  FAIL (HTTP 403): appname not approved.")
+        print(f"  {e}")
+        print("  Request approval: https://apidoc.reliefweb.int/parameters#appname")
+        return 2
+    except requests.RequestException as e:
+        print(f"  FAIL ({type(e).__name__}): {e}")
+        return 1
+    print(f"  OK - appname accepted. API totalCount={data.get('totalCount')}.")
+    return 0
+
+
+# --- main ------------------------------------------------------------------
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Acquire ReliefWeb reports (v2 API).")
+    ap.add_argument("--check", action="store_true",
+                    help="verify the appname with one request, then exit")
+    ap.add_argument("--stage1", action="store_true",
+                    help="metadata index + media-attention signal only")
+    ap.add_argument("--stage2", action="store_true",
+                    help="body-text corpus only")
+    args = ap.parse_args()
+
+    appname = load_appname()
+    if not appname:
+        print("ERROR: RELIEFWEB_APPNAME is not set.", file=sys.stderr)
+        print("The ReliefWeb v2 API requires a PRE-APPROVED appname "
+              "(since 2025-11-01).", file=sys.stderr)
+        print("  1. Request one: https://apidoc.reliefweb.int/parameters#appname",
+              file=sys.stderr)
+        print("  2. Add to a repo-root .env:  RELIEFWEB_APPNAME=...", file=sys.stderr)
+        print("  3. Re-run.", file=sys.stderr)
+        return 2
+
+    client = PoliteClient(appname)
+    if args.check:
+        return run_check(client)
+
+    frm, to = window()
+    print(f"ReliefWeb v2 acquisition | window {frm[:10]} .. {to[:10]} "
+          f"({LOOKBACK_MONTHS} months)")
+    print(f"User-Agent: {USER_AGENT}\n")
+
+    do_stage1 = args.stage1 or not args.stage2
+    do_stage2 = args.stage2 or not args.stage1
+    try:
+        if do_stage1:
+            run_stage1(client, frm, to)
+        if do_stage2:
+            run_stage2(client, frm, to)
+    except Forbidden as e:
+        print(f"\nABORTED: HTTP 403 - appname not approved.\n  {e}",
+              file=sys.stderr)
+        return 2
     return 0
 
 
