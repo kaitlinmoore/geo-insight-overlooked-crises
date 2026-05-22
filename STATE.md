@@ -4,9 +4,17 @@
 
 ## Current focus
 
-Execution phase. Bootstrap documentation updates underway. Data acquisition partially complete (CERF UFE and fieldmaps boundaries done; ACLED, ECHO FCA, NRC, ReliefWeb still pending). Databricks environment partially provisioned (Vector Search endpoint up and Online; schema and volume creation blocked on permissions). Embedding constraint surfaced: workspace assets cannot be iframe-embedded into Databricks Apps; architecture shifted to API-based consumption.
+Execution phase. Bootstrap docs largely complete; **`docs/schemas.md` now authored** (canonical Bronze/Silver/Gold reference, profiled from real data). Data acquisition mostly complete: CERF UFE, fieldmaps boundaries, **ACLED (events + severity), ECHO FCA, NRC, HDX Signals** all done; **ReliefWeb still blocked on appname**. Databricks environment partially provisioned (Vector Search endpoint up and Online; schema and volume creation blocked on permissions). Architecture uses API-based consumption (no iframe embedding).
 
 ## Last meaningful action
+
+2026-05-22 — Authored `docs/schemas.md` covering the full medallion set — the task's 15 Bronze + 12 Silver + 11 Gold tables, plus an added `bronze_acled_severity` / `silver_acled_severity` pair (16 Bronze, 13 Silver in total) — profiled from the actual CMU drop (`data/databricks_data/unocha/`) and staging outputs (Bronze types are real, not guessed). Surfaced schema realities that change loader/methodology assumptions (logged in `DECISIONS.md` 2026-05-22):
+
+- **HNO schema drift** — 2024/2025 carry a HXL row + admin1/2/3 columns (subnational present, admin2 ~76%); **2026 dropped to 10 country-level columns, no subnational, no HXL row** → 2026 subnational analysis unavailable from HNO.
+- **ACLED split into two Bronze tables** — events (point-level, API, 12-month embargo) and severity (admin2×month, HDX, current). See `acquisition_acled.md`.
+- **CBPF contributions** are global donor totals with no fund/country column → `donor_concentration` uses FTS, not CBPF.
+- **INFORM** is a 21-sheet workbook with both a 1–10 index and a 1–5 category; the severity gate keys on the **1–5 category**. A `Trends` sheet holds monthly severity history (candidate chronic_index input).
+- **FTS flows** carry `onBoundary='shared'` (double-count risk) and comma-delimited multi-country `destLocations` (allocation-cascade input).
 
 2026-05-21 — Authored `docs/prior-art.md` (was previously listed as done but did not exist). Honest landscape survey of seven precedents: NRC Most Neglected (closest precedent, Layer 2 comparator), ECHO FCA (Layer 2 comparator, not a feature), CIRV (deliberately excluded for UFE-validation cleanliness), DataNation FCI (methodological ancestor — within-year percentile normalization adopted), ACAPS INFORM Severity (input, not comparator), CERF UFE (Layer 1 labeled ground truth), HDX Signals (roadmap integration point). Each entry has a description, "what we use it for," "what we differ on," and a citation, plus a summary table.
 
@@ -49,13 +57,13 @@ In rough priority order, given current blockers:
 
 2. **Resolve Databricks `CREATE SCHEMA` / `CREATE VOLUME` permissions.** Currently blocking the Bronze layer, Genie space configuration, UC Function registration, and Vector Search indexing. *Owner: human via OCHA/CMU support channels.*
 
-3. **Continue Bronze data acquisition** — prompts 2 (ACLED), 4 (ECHO FCA), 5 (NRC), 6 (ReliefWeb), and optional 7 (HDX Signals). All outputs to local `./staging/`. Independent of the workspace permissions blocker. *Owner: human supervising Claude Code.*
+3. **Finish Bronze data acquisition** — ACLED, ECHO FCA, NRC, HDX Signals all **done** (findings in `docs/notes/`). Only **ReliefWeb (prompt 6) remains, blocked on a pre-approved `RELIEFWEB_APPNAME`** (mandatory since 2025-11-01). *Owner: human to request appname; then Claude Code runs `src/acquisition/acquire_reliefweb.py`.*
 
-4. **Local data profiling.** Pandas / Polars / PyArrow against staged files. Generates findings that feed `docs/data-catalog.md` and `docs/schemas.md` regardless of where the data lands later. *Owner: Claude Code or local analysis.*
+4. **Local data profiling.** **Done for schema purposes** — feeds `docs/schemas.md` (authored). A deeper `docs/data-catalog.md` pass (the sector crosswalk, distinct-value inventories) is still outstanding. *Owner: Claude Code or local analysis.*
 
 5. **React frontend scaffolding.** Now elevated to a higher-priority parallel track given the expanded custom-UI scope (custom chat UI, custom visualizations). TypeScript + React + Tailwind + shadcn/ui setup, routing, component shells, mocked-data versions of each screen. No Databricks dependency in scaffolding phase. *Owner: Claude Code / Cursor; human reviews design.*
 
-6. **Continue bootstrap docs** — SUBMISSION.md, open-questions.md, glossary.md, prior-art.md done; README.md authored. Then create the remaining new docs (schemas.md; architecture.md exists). *Owner: synthesis chat → human commits.*
+6. **Continue bootstrap docs** — SUBMISSION.md, open-questions.md, glossary.md, prior-art.md, README.md, **schemas.md** all done; architecture.md exists. Remaining: `docs/data-catalog.md` (sector crosswalk + Bronze distinct-value inventory). *Owner: synthesis chat → human commits.*
 
 7. **Day 3 evening / Day 4 work** — sequencing depends on when permissions land. Bronze loaders → Silver DLT → Gold → validation → agent layer → frontend integration → demo recording → deck assembly all follow once the workspace is unblocked.
 
@@ -64,7 +72,11 @@ In rough priority order, given current blockers:
 Most pressing (active, may surface during build):
 
 - **Databricks schema/volume creation permissions** — when granted, who grants. Blocking the Bronze layer until resolved.
-- **Subnational HNO data coverage** — which countries have machine-readable admin1 PIN/severity data. v1 ships partial subnational coverage with a `data_sparsity_flag` on countries that lack it.
+- **Subnational HNO data coverage** — which countries have machine-readable admin1 PIN/severity data. v1 ships partial subnational coverage with a `data_sparsity_flag` on countries that lack it. **New finding**: HNO **2026** dropped subnational columns entirely (country-level only), so 2026 subnational analysis can't come from HNO — 2026 `gold_subnational_index` must fall back or sparsity-flag.
+- **fieldmaps P-code join** — confirm `adm{1,2}_id` ≡ HNO `Admin N PCode` (and COD-PS `ADMn_PCODE`) before relying on subnational joins. Carried from the fieldmaps acquisition note.
+- **ACLED 12-month API embargo** — the event-level path has no data newer than ~12 months (account tier). Recent-hotspot work needs elevated ACLED access, or must lean on `bronze_acled_severity` (current). See `acquisition_acled.md`.
+- **Sector taxonomy crosswalk** — `silver_sector_crosswalk` (HNO cluster ↔ FTS cluster ↔ CBPF) still to be hand-built (~20 rows); blocks `gold_sector_coverage`.
+- **INFORM `Trends` sheet** — monthly severity history (2019→) is a ready-made `chronic_index` input; decide whether to add a dedicated Bronze loader for it vs re-stitching monthly snapshots.
 - **Subnational funding inference methodology** — distribute country-level FTS to admin1 proportional to PIN, with uncertainty caveats. Dr. Kurland touchpoint candidate.
 - **Demo crisis selection** — which 2–3 crises to feature in the demo video. Likely one well-known (Yemen or Sudan), one our model surfaces as overlooked that may be less famous, one structural-neglect example.
 - **Composite weights** — placeholder weights for v1 `overlooked_score` may need empirical calibration once Gold is computed and bootstrap CIs reveal which weight configurations are stable.
@@ -74,8 +86,9 @@ See `docs/open-questions.md` for the full list. Resolved questions recorded in `
 
 ## Recent decisions
 
-See `DECISIONS.md` for the full append-only log. Most recent (2026-05-21, newest first):
+See `DECISIONS.md` for the full append-only log. Most recent (newest first):
 
+- **Schemas formalized; ACLED split into two Bronze tables** (2026-05-22). `docs/schemas.md` authored from real profiling. ACLED = `bronze_acled_events` (point, API, embargoed) + `bronze_acled_severity` (admin2×month, HDX, current). `donor_concentration` uses FTS not CBPF (CBPF contributions have no country). INFORM gate keys on the 1–5 category.
 - **Genie and AI/BI Dashboards consumed via API, not embedded.** Iframe embedding of workspace assets confirmed unavailable in Databricks Apps. All screens now custom React; Genie called via REST API; visualizations built against Gold tables via the SQL Connector. Likely net-improvement for visual consistency and portfolio quality.
 - **GeoAI Configuration A modified** — substantial spatial intelligence (subnational ranking, ACLED hotspots, geographic isolation, cross-border view) integrated as a first-class differentiator, in service of the overlooked-crises ranking rather than replacing it.
 - **Knowledge Assistant deferred to Day 4 stretch goal** — supervisor pattern and ReliefWeb document acquisition proceed regardless, leaving architectural door open.
@@ -91,7 +104,7 @@ See `DECISIONS.md` for the full append-only log. Most recent (2026-05-21, newest
 
 - **Workspace status**: Dedicated team workspace provisioned. Vector Search endpoint provisioned and Online. **Schema and volume creation permissions pending** — requested via OCHA/CMU support; blocking the Bronze layer until granted.
 - **Embedding constraint**: Databricks Apps cannot iframe-embed workspace assets (Genie spaces, AI/BI Dashboards). Pattern shifted to API-based consumption (see `DECISIONS.md` 2026-05-21). All visualization work is now custom React.
-- **Acquisition status**: Prompts 1 (CERF UFE) and 3 (fieldmaps boundaries) complete; findings captured in `docs/notes/`. Prompts 2 (ACLED), 4 (ECHO FCA), 5 (NRC), 6 (ReliefWeb), and 7 (HDX Signals, optional) pending.
+- **Acquisition status**: CERF UFE, fieldmaps boundaries, ACLED (events + severity), ECHO FCA, NRC, and HDX Signals all **complete**; findings in `docs/notes/`. **ReliefWeb is the only outstanding source — blocked on a pre-approved `RELIEFWEB_APPNAME`** (`staging/reliefweb_docs/` empty). `.env.example` now includes `RELIEFWEB_APPNAME`, `ACLED_USERNAME`, `ACLED_PASSWORD`.
 - **Git state**: Bootstrap docs, `src/`, and `docs/` are **not yet committed** to git. Only `.gitignore`, `README.md`, and `LICENSE` are tracked. Highest-priority next action is establishing the git baseline.
 - **Submission deadline**: Extended from the original Thursday May 21 23:59 EST. Specific extended deadline per Tanvir's communication — update this line when confirmed.
 - **Working solo.** No team coordination overhead.

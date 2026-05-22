@@ -18,6 +18,24 @@ Architectural and methodological decisions for this project. Append-only. Newest
 
 ---
 
+## 2026-05-22 — Table schemas formalized in docs/schemas.md; ACLED split into two Bronze tables
+
+**Decision:** Authored `docs/schemas.md` as the canonical Bronze/Silver/Gold schema reference, profiled from the actual CMU drop and staging outputs. Three schema choices in it materially touch methodology and are recorded here:
+
+1. **ACLED ingests as two Bronze tables, not one.** `bronze_acled_events` (point-level, from the API; H3-indexable; but embargoed to ≥12 months old) and `bronze_acled_severity` (admin2 × month aggregates, from HDX; current to last month; carries P-codes). They feed `silver_acled_events` (hotspots) and `silver_acled_severity` (the independent severity signal / `gold_change_indicators`) respectively. The original plan assumed one event-level ACLED table; the HDX-vs-API data divergence forced the split (see `docs/notes/acquisition_acled.md`).
+
+2. **`donor_concentration` uses FTS donor identity, not CBPF contributions.** `bronze_cbpf_contributions` turned out to be global donor totals per year with no fund/country column, so it cannot attribute donors to crises. `gold_donor_concentration` is computed from `silver_fts_flows.donor_org` instead.
+
+3. **INFORM severity gate keys on the 1–5 category, not the 1–10 index.** INFORM publishes both scales; `methodology.md`'s "Severity ≥ 4" gate and "≥ 3" chronic check refer to the ordinal **category**. Recorded to prevent a silent off-by-scale bug in the gate.
+
+**Alternatives considered:** (1) Single ACLED table — rejected: no single source has both point coordinates and current recency. (2) Deriving CBPF country attribution from allocations to approximate contributions by crisis — rejected for v1 as out-of-scope and lossy; FTS already provides per-flow donor identity. (3) Using the 1–10 index in the gate — rejected as inconsistent with the documented threshold semantics.
+
+**Rationale:** The dual-ACLED design preserves both the spatial-hotspot capability and a current severity signal; documenting the recency/coverage trade-offs keeps the Silver layer honest. The CBPF and INFORM clarifications prevent two concrete data bugs.
+
+**Revisit if:** ACLED elevated/academic access lifts the 12-month API embargo (then a single current event-level table could serve both paths); or CBPF publishes fund-attributed contributions.
+
+---
+
 ## 2026-05-21 — Genie and AI/BI Dashboards consumed via API, not embedded
 
 **Decision:** Databricks Apps cannot embed workspace assets (Genie spaces, AI/BI Dashboards) via iframe — confirmed through smoke testing during workspace setup. Replace the planned iframe-embedding pattern with API-based consumption:
