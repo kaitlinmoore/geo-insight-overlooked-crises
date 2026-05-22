@@ -18,6 +18,28 @@ Architectural and methodological decisions for this project. Append-only. Newest
 
 ---
 
+## 2026-05-22 — UC Function design conventions
+
+**Decision:** Eleven Unity Catalog Functions in `geo_insight.agent.*` back the Mosaic AI supervisor's tool calls (see `notebooks/agent/register_uc_functions.py` and `notebooks/agent/README.md`). Three convention decisions:
+
+1. **`COMMENT` strings drive tool selection** and avoid apostrophes for SQL-quoting cleanliness — the supervisor's tool selector reads the function `COMMENT`, so each one names the user-facing question type, gives example phrasings, and calls out the bounds/caveats the agent must respect when formatting answers.
+2. **`compare_countries` accepts a comma-separated ISO3 string** (e.g. `"SDN,BFA,YEM"`) rather than `ARRAY<STRING>`. A one-string parameter is more robust to LLM tool-call formatting than an array — revisit if traces show the agent mis-quoting.
+3. **`get_score_decomposition` splits each weight into `ABS(weight)` + `sign` (+1 / -1)`** for unambiguous narration — the agent can say "weight 0.10 applied negatively" without parsing a signed scalar.
+
+**Alternatives considered:** `ARRAY<STRING>` for `compare_countries` — rejected for v1 on LLM-robustness grounds (CSV is one less thing for the agent to format wrong); signed `weight` column with no separate `sign` — rejected because it conflates magnitude and direction in agent narration.
+
+**Rationale:** The functions are the supervisor's tool surface; design choices that make tool selection more accurate and answer formatting more reliable are worth small SQL-side overhead (CSV split, weight/sign decomposition).
+
+**Revisit if:** evaluation traces show the agent mis-quoting the CSV in `compare_countries` (then move to `ARRAY<STRING>`); or if a new convention emerges (e.g. structured docstring with `<example>` tags) that the tool selector handles better than free-text COMMENTs.
+
+---
+
+## 2026-05-22 — Serverless deployment
+
+v1 deploys on Databricks serverless, which can't install the Sedona JVM library. The boundary path (`bronze_fieldmaps_boundaries` → `silver_boundaries`) is deferred; portable replacements adopted: `bronze_country_borders` (GeoNames, CC-BY) for adjacency, the `CONTESTED_BORDER_COUNTRIES` reference list in `notebooks/gold/_common.py` for the contested-border sub-signal, and `src/acquisition/extract_geojson.py` for frontend maps. `gold_cross_border_patterns` rebuilt at country grain. **Revisit if** classic compute becomes available (reactivate the boundary loaders without methodology change).
+
+---
+
 ## 2026-05-22 — gap_ratio numerator is paid-only as headline
 
 **Decision:** The headline `gold_forgotten_crisis_index.overlooked_score` derives from `gap_ratio = (requirement − paid) / requirement` (paid-only). The `gap_ratio_paid_committed` variant is computed and emitted alongside as a sibling column for sensitivity analysis but is not the headline. Affected: `notebooks/gold/_common.py:GAP_NUMERATOR = "paid"`. Both `gap_ratio` (paid-only headline) and `gap_ratio_paid_committed` (variant) land in `gold_forgotten_crisis_index` and `gold_explanation_features`.

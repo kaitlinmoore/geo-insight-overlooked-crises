@@ -46,6 +46,12 @@ Resolution matters during Day 3 / Day 4 but isn't blocking initial progress.
 
 **INFORM Severity snapshot-date source-of-truth.** The Bronze loader (`bronze_inform_severity.py`) parses `snapshot_date` from the filename, preferring the spelled-out month name where present. At least one file is known-misnamed (`20190304gcsidatabasebetaversionfebruary2020.xlsx` — date prefix from 2019, contents are Feb 2020). The `About` sheet inside each workbook carries the canonical release date. Bronze keeps rows verbatim; the date correction belongs in Silver. *Resolution path: `silver_inform_severity` reads the `About` sheet from each `_source_file` and overrides `snapshot_date` where the parsed value disagrees with the About-sheet release date. Flag any disagreements to `_quarantine`. Low priority — affects 1 known file out of 89; impact on `chronic_index` is bounded to one month-country pair in early 2020.*
 
+**`ANT` (Netherlands Antilles, dissolved 2010) and `XKX` (Kosovo, user-assigned) appear in `bronze_country_borders` with non-standard ISO3 codes.** Both pass through harmlessly because they won't match `silver_country_dim` / `gold_forgotten_crisis_index`. *Decide whether to filter or remap if ever joined.*
+
+**`gold_cross_border_patterns` cluster labels are hardcoded with first-listed-wins precedence** (NER and TCD resolve to `sahel_g5` rather than `lake_chad`). *v2 candidate: compute clusters dynamically via spectral clustering on the GeoNames adjacency matrix.*
+
+**Gold schema vs. UC Function spec drift.** The UC Function registration session (2026-05-22) surfaced ~11 small discrepancies between `docs/schemas.md` and what `gold_*` tables actually carry. `notebooks/agent/register_uc_functions.py` handles each via aliases / joins / drops; the workarounds are documented in the notebook. Two warrant future cleanup: (a) `gold_change_indicators` is under-specified for `get_ranking_delta` (lacks `rank_from` / `rank_to` / `score_change`); (b) `gold_explanation_features` carries `media_attention_norm` but not the raw `report_count_annual` (the agent would narrate better with the raw count). Neither is blocking for v1.
+
 ## Methodological calibration items
 
 These are placeholder parameters that need empirical confirmation once real data flows through the pipeline.
