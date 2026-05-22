@@ -96,6 +96,8 @@ Open invitations for expert input. None are blocking; all would improve the proj
 
 Small choices to resolve during implementation. Most are revisable cheaply if the initial call is wrong.
 
+**CBPF fund uniqueness keys on `fund_id`, not `fund_iso3`.** Two iso3 values carry multiple distinct funds: SYR (`fund_id` 62 Syria + `fund_id` 70 Syria Cross border) and PAK (`fund_id` 60 Pakistan + `fund_id` 97 Pakistan AP-RHPF). Any Gold-layer aggregation that assumes one fund per country will silently double-count these. Key on `fund_id` (canonical, populated for all funds with projects) with `fund_iso3` as a country-attribution column, not a fund key. Documented in `silver_fund_country_map`.
+
 **Map rendering library.** Currently planning MapLibre (free Mapbox alternative). Alternatives: deck.gl (more spatial-analytic, harder to learn), Leaflet (simpler, less polished). *Owner: frontend dev session. Easy to swap if the initial choice doesn't suit.*
 
 **Number of Genie spaces (3 vs 4).** Currently planning three: Severity & Needs, Funding & Coverage, Mismatch & Ranking. Geospatial could be its own space or subsumed. *Resolution path: start with three; promote Geospatial to a separate space if query patterns warrant it during evaluation.*

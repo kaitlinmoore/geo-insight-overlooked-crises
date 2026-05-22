@@ -184,7 +184,7 @@ All within ±15 %. The 2026 shortfall is in-year incompleteness — see quirks.
 
 ## Open questions
 
-- **`Honduras (RhPF-LAC)`**: re-pull after GMS catches up (monthly refresh) once 2026 projects are entered; expect it to appear then.
+- **`Honduras (RhPF-LAC)`**: re-pull after GMS catches up (monthly refresh) once 2026 projects are entered; expect it to appear then. *Confirmed 2026-05-22:* the `silver_fund_country_map` rebuild verified Honduras as the **only** allocations-without-projects fund in the current data. The new `fund_id_resolved` warn-expectation in `silver_fund_country_map` surfaces this as a known audit signal (rather than a silent gap) until the next monthly OData refresh catches up.
 - **bronze ↔ OData fund key**: bronze has no `fund_id`. Either (a) build the name-variant map above into `silver_fund_country_map`, or (b) prefer this OData source's `fund_id` as canonical and treat bronze as the legacy aggregate. (b) is cleaner if we adopt `bronze_cbpf_projects`.
 - **`sub_cluster`** Protection sub-clusters not yet profiled against crosswalk `PRO-*` rows.
 - **Per-fund > 15 % timing residuals** in 2024–2025 (`oPt`, `Ukraine`, `Syria`, `Ethiopia`): confirm with OCHA whether bronze `Budget` is the *announced envelope* and `ClusterBudget` the *approved-project* sum — that's the most likely explanation but unverified.

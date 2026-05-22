@@ -295,11 +295,6 @@ The challenge: surface the world's most overlooked humanitarian crises and
 support resource-allocation decisions for the UN's Humanitarian Programme
 Cycle.
 
-Built solo across data acquisition, methodology design, medallion pipeline
-authoring, frontend implementation, and documentation, with extensive use
-of Claude (Anthropic) as a coding and reasoning partner under a documented
-working protocol ([`CLAUDE.md`](CLAUDE.md)).
-
 Special thanks to UN OCHA technical advisors, the Heinz College faculty
 supporting the hackathon, and Databricks for the platform access and
 hackathon hosting.
