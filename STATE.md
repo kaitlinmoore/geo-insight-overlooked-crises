@@ -8,6 +8,12 @@ Execution phase. Bootstrap documentation updates underway. Data acquisition part
 
 ## Last meaningful action
 
+2026-05-21 — Authored `docs/prior-art.md` (was previously listed as done but did not exist). Honest landscape survey of seven precedents: NRC Most Neglected (closest precedent, Layer 2 comparator), ECHO FCA (Layer 2 comparator, not a feature), CIRV (deliberately excluded for UFE-validation cleanliness), DataNation FCI (methodological ancestor — within-year percentile normalization adopted), ACAPS INFORM Severity (input, not comparator), CERF UFE (Layer 1 labeled ground truth), HDX Signals (roadmap integration point). Each entry has a description, "what we use it for," "what we differ on," and a citation, plus a summary table.
+
+2026-05-21 — Authored `docs/glossary.md`: six categories (OCHA core concepts, severity/risk frameworks, external data, project-internal terms, architecture, methodology), alphabetized within each, with definitions, *see also* cross-references, and source tags. Terms sourced from `docs/methodology.md` and `docs/personas.md`.
+
+2026-05-21 — Authored the public-facing `README.md` (repo front door for judges): hero with pitch line and three placeholder screenshot refs, five differentiators, quick links, repo guide, methodology and validation summaries, Responsible-AI paragraph, project context, MIT license + citation. Screenshot refs (`docs/images/*.png`) and the demo/live-app links are placeholders pending the frontend and deployment.
+
 2026-05-21 — Smoke tests in the dedicated Databricks workspace surfaced two issues:
 
 1. Workspace assets (Genie spaces, AI/BI Dashboards) cannot be iframe-embedded inside Databricks Apps. Architecture pivoted to Genie REST API + custom React visualizations over the Databricks SQL Connector. Logged in `DECISIONS.md`.
@@ -49,7 +55,7 @@ In rough priority order, given current blockers:
 
 5. **React frontend scaffolding.** Now elevated to a higher-priority parallel track given the expanded custom-UI scope (custom chat UI, custom visualizations). TypeScript + React + Tailwind + shadcn/ui setup, routing, component shells, mocked-data versions of each screen. No Databricks dependency in scaffolding phase. *Owner: Claude Code / Cursor; human reviews design.*
 
-6. **Continue bootstrap docs** — SUBMISSION.md, open-questions.md, glossary.md, prior-art.md, README.md updates. Then create the new docs (schemas.md, architecture.md). *Owner: synthesis chat → human commits.*
+6. **Continue bootstrap docs** — SUBMISSION.md, open-questions.md, glossary.md, prior-art.md done; README.md authored. Then create the remaining new docs (schemas.md; architecture.md exists). *Owner: synthesis chat → human commits.*
 
 7. **Day 3 evening / Day 4 work** — sequencing depends on when permissions land. Bronze loaders → Silver DLT → Gold → validation → agent layer → frontend integration → demo recording → deck assembly all follow once the workspace is unblocked.
 
