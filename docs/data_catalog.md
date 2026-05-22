@@ -482,7 +482,42 @@ The `silver_fund_country_map` reference table maps each fund name → primary co
 - No `round` column — UFE rounds derive from `dateUSGSignature`, but USG signature date lags ERC round announcement by 2–6 months. Year-grain is exact; round-grain requires a separate announcement-date lookup. v1 ships year-grain.
 - `projectsectors`, `projectclusters`, `projectgroupings`, `projectcapcodes` may carry sector taxonomy info that could enrich the sector crosswalk — not yet profiled.
 
+## bronze_country_borders
+
+**Source file (staging):** `staging/country_borders.csv` — 252 rows (one per country), mean 2.60 land neighbours, 0 unresolved neighbour codes. See `docs/notes/acquisition_geonames_borders.md`.
+
+**Volume target:** `/Volumes/geo_insight/raw/staging/country_borders.csv`
+
+**Update cadence:** ~Quarterly (GeoNames refreshes `countryInfo.txt`); re-acquire when stale or shape changes. Idempotent re-run of the script, no credentials.
+
+**Provenance:** GeoNames `countryInfo.txt` (`download.geonames.org/export/dump/countryInfo.txt`). License **CC-BY** (attribution required; the acquisition script prints it on every run). No auth. Acquired via `src/acquisition/acquire_geonames_borders.py`. **Portable replacement for the deferred Sedona polygon-adjacency path** (serverless compute can't install the Sedona JVM library — see `DECISIONS.md` serverless entry).
+
+**Join keys:** `iso3` ↔ `gold_forgotten_crisis_index.iso3` (and `silver_country_dim.iso3`). `neighbor_iso3_list` is exploded and re-joined to the index on (neighbour `iso3`, `year`) in `gold_cross_border_patterns`.
+
+**Schema (4 columns):**
+
+| Column | Type | Notes |
+|---|---|---|
+| `iso3` | string | ISO3 alpha-3. PK. |
+| `country_name` | string | GeoNames short name. |
+| `neighbor_iso3_list` | string | Comma-separated alpha-3 land neighbours; empty for islands / dependent territories. |
+| `n_neighbors` | int | Count of neighbours. Mean 2.60; max `RUS`=14. |
+
+**Distinct-value inventories — verified per acquisition note:**
+
+- **252 rows**; not every world ISO3 has a row (GeoNames excludes some very small territories).
+- **0 unresolved neighbour codes** — every alpha-2 in every `neighbours` list resolved to alpha-3 via the file's own ISO↔ISO3 map (no `pycountry` needed).
+- **87 zero-neighbour countries**, overwhelmingly islands (`NZL`, `AUS`, `JPN`, `MDG`, `LKA`, `FJI`, `ISL`, `CYP`, `PHL`, …); landlocked countries are **not** here (they report land borders).
+
+**Known quirks (surprises):**
+- `CUB` (Cuba) is **not** zero-neighbour — it lists `USA` (the Guantánamo Bay land boundary); `USA` correspondingly lists `CAN,MEX,CUB`.
+- `GRL` (Greenland) and `FRO` (Faroe Islands) are present with 0 neighbours (dependent territories handled correctly).
+- Two non-standard codes ride along: `ANT` (Netherlands Antilles, deprecated post-2010; odd maritime neighbour `GLP`) and `XKX` (Kosovo, user-assigned). Both drop out of any `gold_forgotten_crisis_index` join (which keys on standard ISO3) — harmless, documented.
+- Disputed/partially-recognized territories appear as own rows (`ESH` Western Sahara, `PSE` Palestinian Territory, `TWN` Taiwan); adjacency reflects GeoNames' worldview. Acceptable for neighbour-counting in v1.
+
 ## bronze_fieldmaps_boundaries
+
+> **🟡 Deferred from v1 (serverless deployment; see `DECISIONS.md`).** The GeoParquet loader and its downstream `silver_boundaries` depend on Apache Sedona, which can't install on serverless compute. Schema preserved below for v2. Replacements in v1: `bronze_country_borders` (adjacency), the `CONTESTED_BORDER_COUNTRIES` list in `notebooks/gold/_common.py` (contested-border sub-signal), and `src/acquisition/extract_geojson.py` (offline GeoJSON for frontend maps).
 
 **Source file (staging):** `staging/fieldmaps_admin_boundaries.geoparquet` — GeoParquet 1.1.0, 43,064 rows, ~2 GB, CRS OGC:CRS84 ≡ EPSG:4326. See `docs/notes/acquisition_fieldmaps.md`.
 

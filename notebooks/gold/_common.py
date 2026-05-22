@@ -145,6 +145,46 @@ ISOLATION_SUBWEIGHTS = {
     "contested_border": 0.30,
 }
 
+# Countries with humanitarian-relevant contested borders. Curated from
+# humanitarian convention (UNHCR, ICRC, OCHA) — countries where at
+# least one shared border has been a documented source of refugee
+# movement, conflict spillover, or operational access challenges in
+# the last 5 years.
+#
+# This replaces the geometric polygon-adjacency computation that would
+# have come from silver_boundaries.contested_border_flag (deferred from
+# v1 due to serverless deployment constraint; see DECISIONS.md).
+#
+# Future v2: derive automatically from ACLED cross-border event clusters
+# + UNHCR refugee origin/destination flows.
+CONTESTED_BORDER_COUNTRIES = frozenset({
+    "AFG",  # Pakistan, Iran borders
+    "ARM",  # Azerbaijan (Nagorno-Karabakh)
+    "AZE",  # Armenia (Nagorno-Karabakh)
+    "BFA",  # Mali, Niger (Sahel insurgency)
+    "CAF",  # Multiple — Cameroon, DRC, Sudan, South Sudan
+    "CMR",  # Lake Chad basin; CAR border
+    "COD",  # Eastern borders — Rwanda, Uganda, Burundi
+    "COL",  # Venezuela border (displacement)
+    "ETH",  # Eritrea, Sudan/South Sudan (Tigray)
+    "IRQ",  # Syria, Iran borders
+    "ISR",  # West Bank, Gaza, Lebanon, Syria
+    "LBN",  # Syria, Israel
+    "MLI",  # Sahel insurgency belt
+    "MMR",  # Bangladesh (Rohingya), Thailand
+    "NER",  # Sahel insurgency belt
+    "NGA",  # Lake Chad basin (Cameroon, Chad, Niger)
+    "PSE",  # Israel
+    "SDN",  # South Sudan, Chad, Ethiopia, Eritrea
+    "SOM",  # Ethiopia, Kenya, Yemen (maritime)
+    "SSD",  # Sudan, Ethiopia, Uganda, Kenya
+    "SYR",  # Multiple borders — Turkey, Iraq, Lebanon, Jordan, Israel
+    "TCD",  # Sudan, Libya, CAR (Lake Chad basin)
+    "UKR",  # Russia (active conflict)
+    "VEN",  # Colombia (displacement corridor)
+    "YEM",  # Saudi Arabia, Oman; maritime with Somalia
+})
+
 
 # COMMAND ----------
 
@@ -368,8 +408,10 @@ def neglect_class_expr():
 # MAGIC - **inverse_acled_density**: 1 − percentile-rank of political-violence
 # MAGIC   event counts (only `political_violence`, to avoid the documented
 # MAGIC   `civilian_targeting` overlap). Lower conflict monitoring → more isolated.
-# MAGIC - **contested_border**: 1 when any boundary in the country is OCHA-flagged
-# MAGIC   contested, else 0.
+# MAGIC - **contested_border**: 1 when the country is in `CONTESTED_BORDER_COUNTRIES`
+# MAGIC   (a curated reference list), else 0. This replaces the deferred
+# MAGIC   `silver_boundaries.contested_border_flag` polygon computation — Sedona is
+# MAGIC   unavailable on serverless compute (see `DECISIONS.md` serverless entry).
 
 # COMMAND ----------
 
@@ -399,15 +441,16 @@ def build_geographic_isolation(spark):
         "iso3", "year", "inverse_acled_density"
     )
 
-    # contested borders from silver_boundaries (year-invariant).
-    bnd = (
-        spark.table(silver("silver_boundaries"))
-        .groupBy("iso3")
-        .agg(F.max(F.when(F.col("contested_border_flag"), 1.0).otherwise(0.0)).alias("contested_border"))
+    base = needs.join(sev, ["iso3", "year"], "outer").fillna(
+        0.0, subset=["data_sparsity", "inverse_acled_density"]
     )
 
-    base = needs.join(sev, ["iso3", "year"], "outer").join(bnd, "iso3", "left").fillna(
-        0.0, subset=["data_sparsity", "inverse_acled_density", "contested_border"]
+    # contested borders from the curated CONTESTED_BORDER_COUNTRIES reference set
+    # (year-invariant). Replaces the deferred silver_boundaries.contested_border_flag
+    # polygon computation — Sedona is unavailable on serverless compute.
+    base = base.withColumn(
+        "contested_border",
+        F.when(F.col("iso3").isin(*CONTESTED_BORDER_COUNTRIES), 1.0).otherwise(0.0),
     )
 
     sw = ISOLATION_SUBWEIGHTS

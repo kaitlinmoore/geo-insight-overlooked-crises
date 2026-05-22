@@ -467,7 +467,26 @@ The per-country × month report-count grid — **the table that feeds `media_att
 
 - **Note**: Silver computes the within-year percentile-rank normalization and applies the **negative** weight (per `methodology.md`). `report_count` is **per-country by design** — do **not** sum it across countries to form a global denominator (21.3% of reports are multi-country tagged, attributed inclusively at acquisition time, so a global sum would double-count).
 
-## bronze_fieldmaps_boundaries  ✅ profiled
+## bronze_country_borders  ✅ acquired (portable adjacency; replaces the deferred Sedona path)
+
+Country-level land-border adjacency — the portable replacement for the deferred Sedona polygon-adjacency computation (serverless compute can't install the Sedona JVM library; see `DECISIONS.md` serverless entry).
+
+- **Source**: `staging/country_borders.csv` (252 rows, one per country). GeoNames `countryInfo.txt` (`download.geonames.org/export/dump/countryInfo.txt`), **license CC-BY** (attribution required). Quarterly refresh, no auth. See `docs/notes/acquisition_geonames_borders.md`.
+- **Grain**: country. **PK**: `iso3`.
+- **Read note**: the CSV's first physical line is a `#`-comment provenance banner → the Bronze loader uses the Spark CSV `comment="#"` option so the real header is line 2; explicit schema (no `inferSchema`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `iso3` | string | ISO3 alpha-3. PK. 252 distinct. |
+| `country_name` | string | GeoNames short country name. |
+| `neighbor_iso3_list` | string | Comma-separated alpha-3 land neighbours; **empty** for islands / dependent territories with no listed land border. |
+| `n_neighbors` | int | Count of neighbours (= length of `neighbor_iso3_list`). Mean 2.60; max `RUS`=14. |
+
+**Quirks**: `CUB` carries one neighbour (`USA`, the Guantánamo Bay land boundary) so it is **not** zero-neighbour. Two non-standard codes ride along — `ANT` (Netherlands Antilles, deprecated) and `XKX` (Kosovo, user-assigned) — and simply don't match `gold_forgotten_crisis_index` on join (harmless). `GRL`/`FRO` are present with 0 neighbours.
+
+## bronze_fieldmaps_boundaries  🟡 deferred — v1 serverless deployment; see DECISIONS.md
+
+**🟡 Deferred from v1.** Loading the GeoParquet requires (downstream) Apache Sedona, which can't install on serverless compute. The schema below is preserved for v2 (when classic compute is available the loader reactivates without methodology change). What replaces it in v1: frontend maps via the offline `src/acquisition/extract_geojson.py`; country adjacency via `bronze_country_borders`; contested-border flag via the `_common.py` reference list.
 
 Edge-matched global subnational boundaries.
 
@@ -634,7 +653,9 @@ Cleaned, country-attributed funding flows.
 - **DLT**: `expect_or_drop` valid_iso3, non_negative_count; `expect` norm_in_unit_interval (warn).
 - **Note**: Per `acquisition_reliefweb.md`, don't sum `report_count` across countries to form a global denominator — 21.3% of reports are multi-country-tagged and the signal is per-country by design.
 
-## silver_boundaries  🟡 (geoparquet, admin0/1/2)
+## silver_boundaries  🟡 deferred — v1 serverless deployment; see DECISIONS.md
+
+**🟡 Deferred from v1.** Every transform below (WKB→geometry decode, `ST_IsValid`, centroids, admin1 adjacency precompute) depends on Apache Sedona, which can't install on serverless compute. The schema is preserved for v2. Replacements in v1: `bronze_country_borders` (country adjacency for `gold_cross_border_patterns`), the `CONTESTED_BORDER_COUNTRIES` reference list in `notebooks/gold/_common.py` (the `contested_border_flag` sub-signal), and offline GeoJSON extraction (frontend maps).
 
 - **Source**: `bronze_fieldmaps_boundaries`. **Grain**: one polygon. **PK**: `adm2_id`.
 - **Columns**: `iso3` (←`iso_3`), `adm0_id`/`adm1_id`/`adm2_id` (P-codes), names, `status_nm` (disputed flag), `contested_border_flag` (bool, derived from `status_cd`/`wld_notes`), `geometry` (geometry type via Sedona), `h3_cells_r5` (array<string>, optional precompute), `centroid_lon`/`centroid_lat`.
@@ -652,7 +673,7 @@ Analytical, business-ready, and the substrate for agent tools (UC Functions). No
 
 The composite `overlooked_score` with uncertainty and classification.
 
-- **Sources**: `silver_needs`, `silver_requirements`, `silver_fts_flows`, `silver_severity`, `silver_population`, `gold_explanation_features` (component metrics), media counts from `bronze_reliefweb_situation_reports`, `geographic_isolation` from `silver_boundaries` + `silver_acled_events`.
+- **Sources**: `silver_needs`, `silver_requirements`, `silver_fts_flows`, `silver_severity`, `silver_population`, `gold_explanation_features` (component metrics), media counts from `bronze_reliefweb_situation_reports`, `geographic_isolation` from `silver_needs` (data sparsity) + `silver_acled_severity` + the `CONTESTED_BORDER_COUNTRIES` reference list in `_common.py` (the `silver_boundaries` contested-border sub-signal is deferred — serverless; see `DECISIONS.md`).
 - **Grain**: country × year. **PK**: (`iso3`, `year`).
 
 | Column | Type | Source / formula (see methodology.md) |
@@ -756,14 +777,27 @@ Spatial-temporal conflict clusters.
 - **DQ (planned)**: `expect` valid_h3; `expect` period_window_90d.
 - **⚠️ Recency**: limited by the ACLED 12-month embargo (`silver_acled_events`); "emerging" is relative to the data's max date.
 
-## gold_cross_border_patterns  📋 planned (Day-4 stretch)
+## gold_cross_border_patterns  🟡 (country-grain regional structure)
 
-Adjacent overlooked admin1 areas across borders.
+Per-country summary of how overlooked a country's land neighbours are, plus membership in known regional crisis clusters — the "regional structural neglect" beat. Rebuilt at **country grain** (was admin1-pair) when the Sedona admin1-polygon adjacency was deferred for serverless; adjacency now comes from `bronze_country_borders` (GeoNames).
 
-- **Sources**: `silver_boundaries` (adjacency), `gold_subnational_index`.
-- **Grain**: admin1 pair. **PK**: (`admin1_pcode_a`, `admin1_pcode_b`).
-- **Planned columns**: `admin1_pcode_a`/`_b`, `iso3_a`/`iso3_b`, `shares_boundary` (bool), `both_top_30pct` (bool), `region_label` (string: Sahel/Horn/Lake Chad/N. Central America), `combined_overlooked_score` (double).
-- **DQ (planned)**: `expect` distinct_countries (`iso3_a <> iso3_b`); `expect` adjacency_verified.
+- **Sources**: `bronze_country_borders` (adjacency) + `gold_forgotten_crisis_index` (scores/ranks).
+- **Grain**: country × year. **PK**: (`iso3`, `year`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `iso3`, `year` | string, int | PK. |
+| `country_name` | string | From the index. |
+| `neighbor_iso3_list` | string | Comma-separated alpha-3 land neighbours (from `bronze_country_borders`). |
+| `n_neighbors_ranked` | int | Count of neighbours that appear in `gold_forgotten_crisis_index` for the same year. |
+| `neighbor_mean_overlooked_score` | double | Mean `overlooked_score` across ranked neighbours. |
+| `neighbor_max_overlooked_score` | double | Max ditto. |
+| `neighbor_top_rank` | int | Best (lowest-numbered) `rank_position` among ranked neighbours. |
+| `cluster_label` | string (nullable) | Hardcoded illustrative cluster: `sahel_g5` {BFA,MLI,NER,TCD,MRT}, `horn_of_africa` {ETH,ERI,SOM,SSD,SDN}, `lake_chad` {NGA,NER,CMR,TCD}, `andean_displacement` {VEN,COL,ECU,PER,BRA}, `levant_displaced` {SYR,LBN,JOR,TUR,IRQ}; null otherwise. NER/TCD resolve to `sahel_g5` (first-listed-wins). |
+| `is_regional_cluster_peak` | boolean | True when the country has the highest `overlooked_score` among ranked members of its `cluster_label` in that year. |
+
+- **DQ (post-write)**: `fail` n_neighbors_ranked_nonneg (`n_neighbors_ranked >= 0`); `warn` peak_requires_cluster.
+- **Note**: cluster labels are illustrative starting groupings for the v1 demo / methodology slide, not computed; v2 could derive them dynamically (e.g. spectral clustering on the GeoNames adjacency matrix).
 
 ---
 
@@ -780,6 +814,7 @@ Adjacent overlooked admin1 areas across borders.
 
 - **Profiled 2026-05-22** from `data/databricks_data/unocha/` (CMU drop) and `staging/` via pandas (`nrows≤4000`), `pyarrow` (parquet schema), `openpyxl`/`python-calamine` (xlsx).
 - Intermediate profile dumps: `staging/_schema_profile_{1,2,3}.json` (gitignored).
-- **Acquired-this-session sources** (real schemas, not planned): ACLED events + severity (`acquisition_acled.md`), ECHO FCA, NRC, HDX Signals, CERF UFE, fieldmaps, ReliefWeb (`acquisition_reliefweb.md`).
-- **Still planned**: the Day-4 stretch Gold tables (`gold_hotspots`, `gold_cross_border_patterns`).
+- **Acquired-this-session sources** (real schemas, not planned): ACLED events + severity (`acquisition_acled.md`), ECHO FCA, NRC, HDX Signals, CERF UFE, fieldmaps, ReliefWeb (`acquisition_reliefweb.md`), GeoNames country borders (`acquisition_geonames_borders.md`).
+- **Still planned**: the Day-4 stretch Gold table `gold_hotspots`. (`gold_cross_border_patterns` is now implemented at country grain off `bronze_country_borders`.)
+- **Serverless deployment note**: v1 runs on Databricks serverless, which can't install the Apache Sedona JVM library. The boundary path is therefore deferred — `bronze_fieldmaps_boundaries` and `silver_boundaries` are 🟡 deferred (schemas preserved for v2). Portable replacements: `bronze_country_borders` (adjacency), the `CONTESTED_BORDER_COUNTRIES` reference list in `notebooks/gold/_common.py` (the `geographic_isolation` contested-border sub-signal), and `src/acquisition/extract_geojson.py` (offline GeoJSON for frontend maps). See `DECISIONS.md` serverless entry.
 - **Schema-drift / quirks to carry into Bronze loaders**: HNO 2026 (no subnational, no HXL row); FTS plan rows vs country-aggregate rows; FTS `onBoundary='shared'` double-count; CBPF contributions have no country; INFORM dual scale (1–10 vs 1–5) + multi-row headers; ACLED `iso` numeric + 12-month embargo + COL demonstration gap + GTM/HND/PHL null ISO3.
