@@ -20,7 +20,7 @@ Full per-row source URLs are in the CSV.
 
 ## Key findings
 
-- **NRC publishes a single ranked top-10 — no severity tier.** Unlike the binary implied for ECHO FCA, NRC does *not* split "fully" vs "partially" neglected. The signal is the **rank** (1 = most neglected). The cross-reference in `DGECHO.md` (that NRC "does tier") is not borne out — NRC's tiering is ordinal rank, not a category label.
+- **NRC publishes a single ranked top-10 — no severity tier.** Unlike the binary implied for ECHO FCA, NRC does *not* split "fully" vs "partially" neglected. The signal is the **rank** (1 = most neglected). The cross-reference in `acquisition_echo_fca.md` (that NRC "does tier") is not borne out — NRC's tiering is ordinal rank, not a category label.
 - **Year label = data year, published the following June.** The "2024" list was published June 2025 (Cameroon #1). Press and some NRC URLs inconsistently use the *publication* year, which blends adjacent editions in search results. Every year here is anchored on NRC's canonical archive (`nrc.no/neglected`) and confirmed against a per-year NRC page. **The CSV uses data year — confirm this matches the year key in the overlooked index before computing top-N overlap.**
 - **Three-criteria methodology** (consistent across editions): lack of funding, lack of media attention, lack of political/diplomatic engagement. Aligns with the project's "overlooked ≠ underfunded" framing — NRC explicitly weights media + political neglect, not just funding.
 

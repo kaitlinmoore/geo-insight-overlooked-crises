@@ -376,14 +376,64 @@ NRC "World's Most Neglected Displacement Crises" — Layer-2 comparator (this on
 | `country_name` | string | |
 | `source_url` | string | |
 
-## bronze_reliefweb_situation_reports  📋 planned
+## bronze_reliefweb_situation_reports  ✅ acquired (was "planned")
 
-ReliefWeb documents for the media-attention proxy + optional Day-4 Knowledge Assistant.
+ReliefWeb situation-report body-text corpus — the Day-4 Knowledge Assistant stretch goal. **Acquired this session** via the ReliefWeb v2 API (appname approved) — see `docs/notes/acquisition_reliefweb.md`.
 
-- **Source**: ReliefWeb API v2 (`api.reliefweb.int/v2/reports`) via `src/acquisition/acquire_reliefweb.py`. **Blocked**: requires a pre-approved `RELIEFWEB_APPNAME` (mandatory since 2025-11-01); `staging/reliefweb_docs/` is currently empty.
-- **Grain**: one document. **PK**: `id`.
-- **Planned schema** (from the acquisition script's output contract): `id` (int), `title` (string), `country` (string, primary), `iso3` (string), `date` (date), `source` (string/array, org), `format` (string: Situation Report/Analysis/Assessment), `language` (string), `url` (string), `body` (string, markdown), `body_html` (string).
-- **Note**: `media_attention` (methodology) needs only `iso3` + `date` counts; the body text is for the stretch-goal Knowledge Assistant.
+- **Source**: JSON corpus at `staging/reliefweb_docs/{iso3}/{YYYY-MM-DD}_{report_id}.json` — 500 docs, ~3.4 MB on disk (25 priority countries × the 20 most-recent docs each).
+- **Grain**: one document. **PK**: `report_id`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `report_id` | int | PK. |
+| `iso3` | string | Primary country ISO3. |
+| `country_name` | string | |
+| `title` | string | |
+| `publication_date` | string→date | |
+| `format` | string | `Situation Report` / `Analysis` / `Assessment`. |
+| `source_organization` | string | Publishing org. |
+| `report_url` | string | ReliefWeb permalink. |
+| `body_text` | string | Stripped plain-text body — the KA ingestion input. |
+| `body_html` | string | Raw HTML body, kept as provenance. |
+| `body_word_count` | int | 45 docs < 100 words (attachment-only stubs), 1 empty — Silver drops `< 100` before embedding. |
+| `all_countries` | array<string> | Every country the report is tagged to (inferred as array). |
+| `scraped_at` / `scraper_version` | string | Acquisition audit fields. |
+
+- **Note**: the body-text corpus is for the Day-4 KA stretch goal; the load-bearing v1 `media_attention` signal comes from the sibling `bronze_reliefweb_attention` table (below), not from this one.
+
+## bronze_reliefweb_metadata  ✅ acquired
+
+The full per-report metadata index across the acquisition window — the substrate for report-volume profiling and the source the attention grid is derived from. Same v2-API acquisition as the corpus above.
+
+- **Source**: `staging/reliefweb_metadata.csv` — 47,339 rows, 36-month window (`2023-06-08 → 2026-05-22`), 25 priority countries.
+- **Grain**: one report per row. **PK**: `report_url` (or composite `iso3` × `publication_date` × `report_url`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `iso3` | string | Country ISO3 (inclusive tagging — a report can appear once per tagged country). |
+| `country_name` | string | |
+| `title` | string | |
+| `publication_date` | string→date | |
+| `format` | string | `Situation Report` / `Analysis` / `Assessment`. |
+| `source_organization` | string | Publishing org. |
+| `report_url` | string | ReliefWeb permalink — PK. |
+
+- **Format distribution**: Situation Report 28,138 · Analysis 15,057 · Assessment 4,144.
+
+## bronze_reliefweb_attention  ✅ acquired
+
+The per-country × month report-count grid — **the table that feeds `media_attention_norm` in `gold_forgotten_crisis_index`**. Derived from `bronze_reliefweb_metadata` at acquisition time as a dense grid.
+
+- **Source**: `staging/reliefweb_media_attention.csv` — 900 rows (25 countries × 36 months), dense (explicit zeros for months with no reports, so no gap-filling is needed downstream).
+- **Grain**: country × month. **PK**: (`iso3`, `year_month`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `iso3` | string | Country ISO3. |
+| `year_month` | string | `YYYY-MM`. |
+| `report_count` | int | Reports tagged to the country that month. |
+
+- **Note**: Silver computes the within-year percentile-rank normalization and applies the **negative** weight (per `methodology.md`). `report_count` is **per-country by design** — do **not** sum it across countries to form a global denominator (21.3% of reports are multi-country tagged, attributed inclusively at acquisition time, so a global sum would double-count).
 
 ## bronze_fieldmaps_boundaries  ✅ profiled
 
@@ -660,7 +710,7 @@ Adjacent overlooked admin1 areas across borders.
 
 | Table | Source | Purpose |
 |---|---|---|
-| `silver_sector_crosswalk` | hand-built CSV (~20 rows) + `bronze_fts_cluster.cluster` + HNO `Cluster` | Harmonize HNO cluster ↔ FTS sector ↔ CBPF category. Documented in `docs/data-catalog.md`. |
+| `silver_sector_crosswalk` | hand-built CSV (25 rows) + `bronze_fts_globalcluster.cluster` + HNO `Cluster` | Harmonize HNO cluster ↔ FTS sector (CBPF sector pending project-level data; the CBPF column in the CSV is empty by design — see `docs/data_catalog.md` → `bronze_cbpf_allocations` for the reasoning). Documented in `docs/data-catalog.md`. |
 | `silver_fund_country_map` | hand-built from `bronze_cbpf_allocations.PooledFund` distinct values | Map CBPF fund names → ISO3, flag regional funds. |
 | `silver_excluded_with_signal` | `gold_forgotten_crisis_index` build | Countries failing the severity gate — kept for transparency (missing data as signal). |
 
@@ -670,6 +720,6 @@ Adjacent overlooked admin1 areas across borders.
 
 - **Profiled 2026-05-22** from `data/databricks_data/unocha/` (CMU drop) and `staging/` via pandas (`nrows≤4000`), `pyarrow` (parquet schema), `openpyxl`/`python-calamine` (xlsx).
 - Intermediate profile dumps: `staging/_schema_profile_{1,2,3}.json` (gitignored).
-- **Acquired-this-session sources** (real schemas, not planned): ACLED events + severity (`acquisition_acled.md`), ECHO FCA, NRC, HDX Signals, CERF UFE, fieldmaps.
-- **Still planned/blocked**: ReliefWeb (appname pending), and the Day-4 stretch Gold tables (`gold_hotspots`, `gold_cross_border_patterns`).
+- **Acquired-this-session sources** (real schemas, not planned): ACLED events + severity (`acquisition_acled.md`), ECHO FCA, NRC, HDX Signals, CERF UFE, fieldmaps, ReliefWeb (`acquisition_reliefweb.md`).
+- **Still planned**: the Day-4 stretch Gold tables (`gold_hotspots`, `gold_cross_border_patterns`).
 - **Schema-drift / quirks to carry into Bronze loaders**: HNO 2026 (no subnational, no HXL row); FTS plan rows vs country-aggregate rows; FTS `onBoundary='shared'` double-count; CBPF contributions have no country; INFORM dual scale (1–10 vs 1–5) + multi-row headers; ACLED `iso` numeric + 12-month embargo + COL demonstration gap + GTM/HND/PHL null ISO3.

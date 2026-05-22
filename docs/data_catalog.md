@@ -528,7 +528,7 @@ The `silver_fund_country_map` reference table maps each fund name → primary co
 
 ## bronze_echo_fca
 
-**Source file (staging):** `staging/echo_fca_lists.csv` — 197 rows, 2015–2026. See `docs/notes/acquisition_echo_fca.md` / `acquisition_DGECHO.md`.
+**Source file (staging):** `staging/echo_fca_lists.csv` — 197 rows, 2015–2026. See `docs/notes/acquisition_echo_fca.md`.
 
 **Volume target:** `/Volumes/geo_insight/raw/staging/echo/`
 
@@ -569,7 +569,7 @@ The `silver_fund_country_map` reference table maps each fund name → primary co
 
 ## bronze_reliefweb_situation_reports
 
-**Source files (staging):** ReliefWeb documents in `staging/reliefweb_docs/` — corpus acquired via `src/acquisition/acquire_reliefweb.py`. **Updated 2026-05-22:** the appname was approved and the v2-API run completed; the corpus is no longer empty. **Schemas.md may still mark this as `📋 planned` — flag for update.**
+**Source files (staging):** ReliefWeb documents in `staging/reliefweb_docs/` — corpus acquired via `src/acquisition/acquire_reliefweb.py`. **Updated 2026-05-22:** the appname was approved and the v2-API run completed; the corpus is no longer empty. Schemas.md updated 2026-05-22.
 
 **Volume target:** `/Volumes/geo_insight/raw/staging/reliefweb/`
 
