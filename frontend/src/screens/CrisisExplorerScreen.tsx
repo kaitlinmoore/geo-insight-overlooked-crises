@@ -1,14 +1,21 @@
 import { Link, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Placeholder } from "@/components/Placeholder";
 import { NeglectBadge } from "@/components/NeglectBadge";
 import { RankCI } from "@/components/RankCI";
+import { QueryState } from "@/components/QueryState";
+import { SectorGapChart } from "@/components/charts/SectorGapChart";
+import { FundingFunnelChart } from "@/components/charts/FundingFunnelChart";
+import { FundingTrendChart } from "@/components/charts/FundingTrendChart";
 import { cn } from "@/lib/utils";
-import { getCrisisDetail, type ScoreComponent } from "@/lib/mockData";
+import { fetchCrisis } from "@/lib/api";
+import type { CrisisDetail, ScoreComponent } from "@/lib/types";
 
 function DecompositionRow({ c }: { c: ScoreComponent }) {
   const negative = c.contribution < 0;
@@ -34,32 +41,32 @@ function DecompositionRow({ c }: { c: ScoreComponent }) {
 
 export function CrisisExplorerScreen() {
   const { iso3 } = useParams();
-  const detail = getCrisisDetail(iso3 ?? "");
+  const query = useQuery({
+    queryKey: ["crisis", iso3],
+    queryFn: () => fetchCrisis(iso3 ?? ""),
+    enabled: Boolean(iso3),
+  });
 
-  if (!detail) {
-    return (
-      <div className="space-y-4">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/">
-            <ArrowLeft className="h-4 w-4" /> Back to Triage
-          </Link>
-        </Button>
-        <p className="text-sm text-muted-foreground">No crisis data for "{iso3}".</p>
-      </div>
-    );
-  }
+  return (
+    <div className="space-y-6">
+      <Button asChild variant="ghost" size="sm" className="-ml-2">
+        <Link to="/">
+          <ArrowLeft className="h-4 w-4" /> Triage
+        </Link>
+      </Button>
+      <QueryState query={query} skeleton={<CrisisSkeleton />}>
+        {(detail) => <CrisisBody detail={detail} />}
+      </QueryState>
+    </div>
+  );
+}
 
+function CrisisBody({ detail }: { detail: CrisisDetail }) {
   const r = detail.ranking;
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
-          <Button asChild variant="ghost" size="sm" className="-ml-2">
-            <Link to="/">
-              <ArrowLeft className="h-4 w-4" /> Triage
-            </Link>
-          </Button>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">{r.country_name}</h1>
             <span className="text-sm text-muted-foreground">{r.iso3}</span>
@@ -81,13 +88,11 @@ export function CrisisExplorerScreen() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Decomposition card — real DOM against mocked components */}
+        {/* Deterministic decomposition */}
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Why this rank — deterministic decomposition</CardTitle>
-            <CardDescription>
-              Within-year percentile × nominal weight. Drivers sorted by contribution.
-            </CardDescription>
+            <CardDescription>Within-year percentile × nominal weight. Drivers sorted by contribution.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="divide-y divide-border/40">
@@ -103,102 +108,82 @@ export function CrisisExplorerScreen() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Subnational severity (admin1)</CardTitle>
-            <CardDescription>
-              {detail.subnational.length > 0
-                ? `${detail.subnational.length} admin1 areas · ${detail.subnational.filter((a) => a.is_hotspot).length} ACLED hotspot(s)`
-                : "No machine-readable admin1 data — ranked at country level."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Placeholder
-              height="h-72"
-              label="[Subnational choropleth: admin1 overlooked_score]"
-              detail="MapLibre fill layer from gold_subnational_index, ACLED hotspot overlay (point data not mocked)"
-            />
-            {detail.subnational.length > 0 && (
-              <ul className="mt-3 space-y-1 text-sm">
-                {detail.subnational.map((a) => (
-                  <li key={a.pcode} className="flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      {a.admin1_name}
-                      {a.is_hotspot && (
-                        <Badge variant="destructive" className="text-[10px]">
-                          hotspot
-                        </Badge>
-                      )}
-                    </span>
-                    <span className="tnum text-muted-foreground">
-                      INFORM {a.inform_severity.toFixed(1)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
+        {/* Sector decomposition bar chart */}
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Sector coverage</CardTitle>
-            <CardDescription>Flagged when gap &gt; 70% and PIN share ≥ 10%.</CardDescription>
+            <CardDescription>Funding gap by sector. Red = flagged (gap &gt; 70% &amp; PIN share ≥ 10%).</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {detail.sectors.map((s) => (
-                <div key={s.sector} className="grid grid-cols-[8rem_1fr_3rem] items-center gap-3 text-sm">
-                  <span className="flex items-center gap-1.5 truncate">
-                    {s.sector}
-                    {s.flagged && <span className="h-1.5 w-1.5 rounded-full bg-acute" />}
-                  </span>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={cn("h-full rounded-full", s.flagged ? "bg-acute" : "bg-primary")}
-                      style={{ width: `${s.sector_gap * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-right tnum text-muted-foreground">
-                    {Math.round(s.sector_gap * 100)}%
-                  </span>
-                </div>
-              ))}
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              [Recharts bar chart will replace these bars]
-            </p>
+            <SectorGapChart sectors={detail.sectors} />
           </CardContent>
         </Card>
 
+        {/* Funding funnel */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Funding funnel</CardTitle>
+            <CardDescription>Required → pledged → committed → paid.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FundingFunnelChart funnel={detail.funnel} />
+          </CardContent>
+        </Card>
+
+        {/* Multi-year trend */}
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Multi-year funding trend</CardTitle>
-            <CardDescription>Requirement vs. paid · gap_ratio per year.</CardDescription>
+            <CardDescription>gap_ratio per year; dashed line marks the 50% chronic threshold.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Placeholder
-              height="h-56"
-              label="[Recharts composed chart: requirement vs paid, gap_ratio line]"
-              detail="gold_funding_trend · 2022–2026"
-            />
-            <div className="mt-3 flex justify-between text-xs text-muted-foreground tnum">
-              {detail.trend.map((t) => (
-                <span key={t.year}>
-                  {t.year}: {Math.round(t.gap_ratio * 100)}%
-                </span>
-              ))}
-            </div>
+            <FundingTrendChart trend={detail.trend} />
           </CardContent>
         </Card>
       </div>
 
+      {/* Subnational */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Subnational severity (admin1)</CardTitle>
+          <CardDescription>
+            {detail.subnational.length > 0
+              ? `${detail.subnational.length} admin1 areas · ${detail.subnational.filter((a) => a.is_hotspot).length} ACLED hotspot(s)`
+              : "No machine-readable admin1 data — ranked at country level."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Placeholder
+            height="h-64"
+            label="[Subnational choropleth: admin1 overlooked_score]"
+            detail="MapLibre fill from gold_subnational_index + ACLED hotspot overlay — maps are a separate workstream"
+          />
+          {detail.subnational.length > 0 ? (
+            <ul className="space-y-1 self-center text-sm">
+              {detail.subnational.map((a) => (
+                <li key={a.pcode} className="flex items-center justify-between border-b border-border/40 py-1">
+                  <span className="flex items-center gap-2">
+                    {a.admin1_name}
+                    {a.is_hotspot && <Badge variant="destructive" className="text-[10px]">hotspot</Badge>}
+                  </span>
+                  <span className="tnum text-muted-foreground">INFORM {a.inform_severity.toFixed(1)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="self-center text-sm text-muted-foreground">
+              This country carries a <code>data_sparsity_flag</code>; the national rank may reflect one
+              severe area or broad moderate need — the distinction isn’t resolvable without admin1 data.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Narrative (KA stretch) */}
       <Card>
         <CardHeader>
           <CardTitle className="text-sm">Narrative context</CardTitle>
-          <CardDescription>
-            Optional Knowledge-Assistant panel — Day 4 stretch goal.
-          </CardDescription>
+          <CardDescription>Optional Knowledge-Assistant panel — Day 4 stretch goal.</CardDescription>
         </CardHeader>
         <CardContent>
           {detail.narrative ? (
@@ -212,6 +197,19 @@ export function CrisisExplorerScreen() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function CrisisSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Skeleton className="h-10 w-1/2" />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-64 w-full" />
+        ))}
+      </div>
     </div>
   );
 }

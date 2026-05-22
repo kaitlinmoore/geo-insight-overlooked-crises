@@ -1,19 +1,18 @@
-import { useState } from "react";
-import { Send, ThumbsDown, ThumbsUp } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { Send, ThumbsDown, ThumbsUp, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MOCK_ASK_EXCHANGE, type AskExchange } from "@/lib/mockData";
+import { fetchAsk } from "@/lib/api";
+import type { AskExchange } from "@/lib/types";
 
-/** Custom Genie chat UI: question → generated SQL → result → NL answer. */
 function Exchange({ ex }: { ex: AskExchange }) {
   const columns = ex.result_rows.length > 0 ? Object.keys(ex.result_rows[0]) : [];
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-lg rounded-br-sm bg-primary/15 px-3 py-2 text-sm">
-          {ex.question}
-        </div>
+        <div className="max-w-[80%] rounded-lg rounded-br-sm bg-primary/15 px-3 py-2 text-sm">{ex.question}</div>
       </div>
 
       <Card>
@@ -33,9 +32,7 @@ function Exchange({ ex }: { ex: AskExchange }) {
       {columns.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">
-              Result
-            </CardTitle>
+            <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Result</CardTitle>
           </CardHeader>
           <CardContent>
             <table className="w-full text-sm">
@@ -69,9 +66,7 @@ function Exchange({ ex }: { ex: AskExchange }) {
           <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Not helpful">
             <ThumbsDown className="h-3.5 w-3.5" />
           </Button>
-          <span className="text-xs text-muted-foreground">
-            Feedback writes to a Delta table (wired next session)
-          </span>
+          <span className="text-xs text-muted-foreground">Feedback writes to a Delta table (wired next session)</span>
         </div>
       </div>
     </div>
@@ -80,20 +75,43 @@ function Exchange({ ex }: { ex: AskExchange }) {
 
 export function AskScreen() {
   const [draft, setDraft] = useState("");
+  const [exchanges, setExchanges] = useState<AskExchange[]>([]);
+  const seeded = useRef(false);
+
+  const mutation = useMutation({
+    mutationFn: (q: string) => fetchAsk(q),
+    onSuccess: (ex) => setExchanges((prev) => [...prev, ex]),
+  });
+
+  // Seed one exchange so the screen is non-empty on first load.
+  useEffect(() => {
+    if (!seeded.current) {
+      seeded.current = true;
+      mutation.mutate("Which countries had a health-sector funding gap above 70% in 2026?");
+    }
+  }, [mutation]);
 
   return (
     <div className="mx-auto flex h-[calc(100vh-10rem)] max-w-3xl flex-col">
       <div className="mb-4">
         <h1 className="text-lg font-semibold tracking-tight">Ask</h1>
-        <p className="text-sm text-muted-foreground">
-          Natural-language questions over Gold tables via the Genie REST API.
-        </p>
+        <p className="text-sm text-muted-foreground">Natural-language questions over Gold tables via the Genie REST API.</p>
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto pr-1">
-        <Exchange ex={MOCK_ASK_EXCHANGE} />
+        {exchanges.map((ex) => (
+          <Exchange key={ex.id + ex.question} ex={ex} />
+        ))}
+        {mutation.isPending && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Genie is generating SQL…
+          </div>
+        )}
+        {mutation.isError && (
+          <p className="text-sm text-destructive">Request failed: {String(mutation.error)}. Is the API on :8000?</p>
+        )}
         <p className="text-center text-xs text-muted-foreground">
-          [Streaming responses + MLflow trace link land in the integration session]
+          [Mock keyword routing · streaming + MLflow trace link land in the integration session]
         </p>
       </div>
 
@@ -101,6 +119,9 @@ export function AskScreen() {
         className="mt-4 flex items-center gap-2 border-t border-border pt-4"
         onSubmit={(e) => {
           e.preventDefault();
+          const q = draft.trim();
+          if (!q) return;
+          mutation.mutate(q);
           setDraft("");
         }}
       >
@@ -110,7 +131,7 @@ export function AskScreen() {
           placeholder="Ask about overlooked crises, funding gaps, sectors…"
           className="h-10 flex-1 rounded-md border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
         />
-        <Button type="submit" size="icon" disabled={!draft.trim()}>
+        <Button type="submit" size="icon" disabled={!draft.trim() || mutation.isPending}>
           <Send className="h-4 w-4" />
         </Button>
       </form>

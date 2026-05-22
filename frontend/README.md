@@ -1,150 +1,156 @@
 # Geo-Insight Frontend
 
 The React command center for identifying the world's most overlooked
-humanitarian crises. Six screens over Databricks Gold tables and a Mosaic AI
-supervisor agent. **This is a scaffold** — real visualizations and Databricks
-integration land in the next session. Everything renders against mocked data.
+humanitarian crises. Six screens over (eventually) Databricks Gold tables and a
+Mosaic AI supervisor agent. **Current state: real API contract + real Recharts
+visualizations against mocked data.** No Databricks connectivity yet — a FastAPI
+backend serves fixtures whose shapes match the future Gold tables, so swapping in
+the Databricks SQL Connector later is mechanical.
 
 ## Stack
 
 | Concern | Choice | Version (pinned in `package.json`) |
 |---|---|---|
 | Build tool | Vite | ^5.4 |
-| UI runtime | React | ^18.3 (React 18, per spec) |
+| UI runtime | React | ^18.3 |
 | Language | TypeScript (strict) | ~5.6 |
 | Styling | Tailwind CSS | ^3.4 |
-| Primitives | shadcn/ui (new-york style, CSS variables) | Radix-based, vendored in `src/components/ui` |
+| Primitives | shadcn/ui (new-york, CSS variables) | vendored in `src/components/ui` |
+| Data fetching | @tanstack/react-query | ^5.59 |
+| Charts | recharts | ^2.13 |
 | Routing | react-router-dom | ^6.27 |
-| Charts (installed, not yet used) | recharts | ^2.13 |
 | Maps (installed, not yet used) | react-map-gl + maplibre-gl | ^7.1 / ^4.7 |
 | Icons | lucide-react | ^0.451 |
-| Backend | FastAPI (`server/`) | see `server/requirements.txt` |
+| Backend | FastAPI + Pydantic v2 (`server/`) | see `server/requirements.txt` |
 
-**Package manager: npm.** pnpm was not installed on the build machine; npm is
-the committed choice (`package-lock.json`). Switching to pnpm later is a
-`pnpm import` away if desired.
+**Package manager: npm** (`package-lock.json` committed).
 
-**shadcn setup approach:** initialized manually rather than via `npx shadcn init`
-(no interactive prompt in this environment). `components.json` is present so the
-shadcn CLI can add further primitives later (`npx shadcn@latest add <name>`).
-The base primitives used by the shells (button, card, badge, separator, tabs,
-select, tooltip) are vendored in `src/components/ui/`.
+## Install & run (two processes)
 
-## Install & run
+The app calls `/api/*`; the Vite dev server proxies those to FastAPI on `:8000`.
+Run both:
 
 ```powershell
+# 1) backend
+cd frontend/server
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+
+# 2) frontend (separate terminal)
 cd frontend
 npm install
-npm run dev          # Vite dev server at http://localhost:5173
+npm run dev          # http://localhost:5173
 ```
 
-Other scripts:
+The proxy is configured in `vite.config.ts` (`/api` → `http://127.0.0.1:8000`).
+In the deployed Databricks App the two are served same-origin, so no proxy is
+needed in production.
 
-```powershell
-npm run build        # tsc -b (strict typecheck) + vite production build
-npm run typecheck    # tsc --noEmit only
-npm run preview      # serve the production build
-```
-
-The backend (optional during scaffolding — only `/api/health` exists) runs
-separately; see [`server/README.md`](server/README.md). The Vite dev server
-proxies `/api/*` to `http://127.0.0.1:8000`.
+Other scripts: `npm run build` (strict `tsc -b` + vite build), `npm run
+typecheck`, `npm run preview`.
 
 ## Routes
 
-| Route | Screen | Primary persona | Purpose |
+| Route | Screen | Persona | Data source |
 |---|---|---|---|
-| `/` | Triage | HC | Global map hero + ranked overlooked-crisis list with change indicators, region filters, and a current-mismatch ↔ structural-neglect toggle. |
-| `/crisis/:iso3` | Crisis Explorer | HAO | Country deep-dive: deterministic decomposition card, subnational severity, sector coverage, multi-year funding trend, optional KA narrative panel. |
-| `/compare` | Compare | HAO | 2–4 countries side-by-side, metrics aligned on a shared scale. |
-| `/ask` | Ask | HAO · HC | Custom Genie chat UI: question → generated SQL → result table → cited NL answer, with thumbs feedback. |
-| `/methodology` | Methodology | All | Composite formula, bootstrap CI viz, UFE/ECHO/NRC validation, RAI scorecard, sector explorer. |
-| `/cbpf` | CBPF Allocation View | PFM | *Optional.* Fund-scoped ranking + allocations-vs-overlookedness, factual framing only. |
+| `/` | Triage | HC | `GET /api/v1/rankings` (+ sparklines from `score_history`) |
+| `/crisis/:iso3` | Crisis Explorer | HAO | `GET /api/v1/crisis/{iso3}` |
+| `/compare` | Compare | HAO | `GET /api/v1/compare?countries=A,B,C` |
+| `/ask` | Ask | HAO · HC | `POST /api/v1/ask` |
+| `/methodology` | Methodology | All | `GET /api/v1/methodology/{composite-weights,cascade-distribution}` |
+| `/cbpf` | CBPF Allocation View | PFM | `GET /api/v1/cbpf/funds` |
 
-## What's mocked vs. real
+## API endpoints (all under `/api/v1/`)
+
+| Method · Path | Response model |
+|---|---|
+| `GET /rankings?year&scope&region` | `RankingsResponse` |
+| `GET /crisis/{iso3}?year` | `CrisisDetail` |
+| `GET /compare?countries=A,B,C` (or repeated `?iso3=`) | `CompareResponse` |
+| `POST /ask` `{question}` | `AskExchange` |
+| `GET /methodology/cascade-distribution` | `CascadeResponse` |
+| `GET /methodology/composite-weights` | `CompositeWeightsResponse` |
+| `GET /cbpf/funds?year` | `CbpfResponse` |
+| `GET /changes?since` | `ChangesResponse` |
+| `GET /api/health` | liveness |
+
+Pydantic models live in `server/models.py`; fixtures in `server/mock_data.py`.
+
+## What's real vs. mocked
 
 **Real (works now):**
-- Routing, the app shell (nav, breadcrumb, content slot), theming.
-- Triage ranked list — real DOM rendering mocked rows, region filter, rank
-  mode toggle, change indicators, rank+CI display, neglect-class badges.
-- Crisis Explorer decomposition card, sector bars, subnational list — real DOM
-  off the mocked `CrisisDetail` shape.
-- Ask screen renders a full mocked exchange (question/SQL/result/answer).
+- TanStack Query fetch layer (`src/lib/api.ts`) against the FastAPI endpoints,
+  with loading (shadcn `Skeleton`), error, and success states on every screen.
+- **Recharts visualizations**: Crisis Explorer sector-gap bar, funding funnel,
+  multi-year trend (with 50% chronic reference line); Triage per-row score
+  sparklines; Compare chronic-vs-acute quadrant scatter; CBPF reserve/standard
+  allocation bars; Methodology composite-weights bars + cascade table.
+- Deterministic decomposition card, rank+CI display, neglect badges, change
+  indicators, region/mode filters.
 
-**Mocked (placeholder boxes labeled with the eventual viz):**
-- All maps (global choropleth, subnational choropleth, ACLED hotspots).
-- All Recharts visualizations (funding trend, validation, bootstrap CIs,
-  sector heatmap, CBPF scatter).
-- ACLED point data is **not** mocked (too much shape) — placeholder only.
+**Mocked (placeholder boxes, labeled with the eventual viz):**
+- All maps — global choropleth, subnational choropleth, ACLED hotspots
+  (separate workstream; needs GeoJSON from the fieldmaps GeoParquet).
+- Methodology bootstrap-CI and UFE/ECHO/NRC validation charts (need endpoints).
+- KA narrative panel (Day-4 stretch).
 
 **Not present (out of scope this session):**
-- Any Databricks connectivity (SQL Connector, Genie REST, agent endpoint).
-- Credential/env wiring.
-- Streaming responses, MLflow trace links, feedback persistence.
+- Databricks connectivity (SQL Connector, Genie REST, agent endpoint), credentials.
+- Streaming Ask responses, MLflow trace links, feedback persistence.
 
-The mocked numbers in `src/lib/mockData.ts` are **fabricated and must not be
-cited.** They exist only to exercise realistic data shapes.
+All fixture numbers (`server/mock_data.py`) are **fabricated — do not cite.**
 
 ## The data contract
 
-`src/lib/mockData.ts` is the single source of truth for the shapes the screens
-expect. Its TypeScript types mirror the Gold tables in `docs/architecture.md`
-and the methodology vocabulary in `docs/methodology.md` (overlooked_score,
-rank_position + rank_ci_low/high, percentile-ranked components, neglect_class,
-change indicators, sector gaps, subnational rows). Every field is commented.
-The next session swaps the fixtures for live data **without changing the types**.
+- `src/lib/types.ts` — the TypeScript contract (types only). Mirrors
+  `server/models.py` field-for-field (snake_case both sides).
+- `src/lib/mockData.ts` — now just `export * from "./types"` for backward-compat.
+- `src/lib/api.ts` — typed `fetch()` client, one function per endpoint.
+- `server/models.py` / `server/mock_data.py` — Pydantic contract + canonical fixtures.
+
+Swapping mocks for Databricks: replace the builders in `mock_data.py` with SQL
+Connector queries that return the same Pydantic models. The TypeScript side and
+the screens do not change.
 
 ## Project layout
 
 ```
 frontend/
-├── index.html               # dark-mode root
-├── package.json             # npm, React 18 pinned
-├── vite.config.ts           # @ alias, /api proxy to FastAPI
-├── tailwind.config.ts       # shadcn theme tokens + semantic accents
-├── components.json          # shadcn CLI config
-├── tsconfig*.json           # strict mode, project references
+├── vite.config.ts           # @ alias, /api → :8000 proxy
 ├── src/
-│   ├── main.tsx             # RouterProvider entry
+│   ├── main.tsx             # RouterProvider + QueryClientProvider
 │   ├── router.tsx           # 6 routes + crisis detail + 404
-│   ├── index.css            # shadcn CSS variables (dark-first palette)
 │   ├── lib/
-│   │   ├── mockData.ts      # ← THE DATA CONTRACT (types + fixtures)
-│   │   └── utils.ts         # cn() helper
+│   │   ├── types.ts         # ← TS half of the data contract
+│   │   ├── mockData.ts      # re-export of types.ts (compat shim)
+│   │   ├── api.ts           # typed fetch client
+│   │   ├── chartTheme.ts    # Recharts colors / formatters
+│   │   └── utils.ts
 │   ├── components/
-│   │   ├── AppShell.tsx      # nav + breadcrumb + content slot
-│   │   ├── Placeholder.tsx   # labeled viz placeholder
-│   │   ├── NeglectBadge.tsx  # neglect_class chip
-│   │   ├── ChangeIndicator.tsx
-│   │   ├── RankCI.tsx        # honest "#2 [#1–3]" rank display
-│   │   └── ui/               # vendored shadcn primitives
-│   └── screens/
-│       ├── TriageScreen.tsx
-│       ├── CrisisExplorerScreen.tsx
-│       ├── CompareScreen.tsx
-│       ├── AskScreen.tsx
-│       ├── MethodologyScreen.tsx
-│       ├── CbpfScreen.tsx
-│       └── NotFoundScreen.tsx
-└── server/                  # FastAPI skeleton (health-check only)
+│   │   ├── AppShell.tsx · Placeholder · NeglectBadge · ChangeIndicator · RankCI
+│   │   ├── QueryState.tsx   # loading/error/success wrapper
+│   │   ├── charts/          # ScoreSparkline, SectorGapChart, FundingFunnelChart,
+│   │   │                    #   FundingTrendChart, CompareQuadrantChart
+│   │   └── ui/              # vendored shadcn primitives (+ skeleton)
+│   └── screens/             # Triage, CrisisExplorer, Compare, Ask, Methodology, Cbpf, NotFound
+└── server/
+    ├── main.py              # FastAPI routes (/api/v1/*)
+    ├── models.py            # Pydantic response/request models
+    ├── mock_data.py         # canonical fixtures
+    └── requirements.txt
 ```
 
 ## Next integration session, in order
 
-1. **Stand up the FastAPI data layer.** Implement `/api/rankings/top`,
-   `/api/crisis/{iso3}`, etc. against the Databricks SQL Connector. Add
-   credentials via env vars (host, token, warehouse ID).
-2. **Replace mock fixtures with a fetch layer.** Keep the `mockData.ts` types;
-   add a thin API client that returns the same types. Screens shouldn't change.
-3. **Wire the maps.** Global choropleth (admin0 percentile) on Triage and
-   admin1 choropleth on Crisis Explorer, using react-map-gl + MapLibre against
-   fieldmaps.io boundaries. Add the ACLED hotspot overlay.
-4. **Wire Recharts.** Funding trend, sector breakdown, bootstrap-CI viz,
-   validation charts, CBPF scatter.
-5. **Wire the Ask screen** to the Genie REST API via `/api/ask`, with streaming
-   and the generated-SQL/result/answer rendering already stubbed here. Persist
+1. **Maps** — global admin0 choropleth (Triage) + admin1 choropleth & ACLED
+   hotspots (Crisis Explorer) via react-map-gl + MapLibre over fieldmaps.io
+   boundaries (GeoJSON extraction from the GeoParquet is its own task).
+2. **Ask → Genie REST** — replace the keyword-routed mock in `mock_data.ask_response`
+   with a real Genie REST call; add streaming + MLflow trace links; persist
    thumbs feedback to a Delta table.
-6. **Methodology screen** reads real Gold tables via the SQL Connector and
-   surfaces MLflow eval results for the RAI scorecard.
-7. **Package as a Databricks App** (`databricks.yml`) declaring the Model
-   Serving endpoint, SQL warehouse, and Gold-table dependencies.
+3. **Databricks SQL Connector data layer** — replace every builder in
+   `server/mock_data.py` with Gold-table queries returning the same Pydantic
+   models; add credentials via env vars (host, token, warehouse ID). Also add
+   the missing methodology endpoints (bootstrap CIs, UFE/ECHO/NRC validation).
