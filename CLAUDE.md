@@ -45,7 +45,7 @@ Read additionally based on what you're doing:
 ├── DECISIONS.md             ← append-only decision log
 ├── SUBMISSION.md            ← deliverable checklist
 ├── .gitignore               ← gitignored: staging/, .env, node_modules/, etc.
-├── .env.example             ← template for required environment variables
+├── .env                      ← (gitignored) API credentials; add new required vars here
 │
 ├── docs/
 │   ├── methodology.md       ← scoring formulas, validation, geographic methodology
@@ -122,7 +122,7 @@ Read additionally based on what you're doing:
   ```
   databricks fs cp ./staging/<file> dbfs:/Volumes/geo_insight/raw/staging/<file> --profile hackathon
   ```
-- **API credentials in `.env`.** Use `python-dotenv`. `.env.example` lists required variables without values. Real `.env` is gitignored.
+- **API credentials in `.env`.** Use `python-dotenv`. Add new required variables directly to `.env` as needed. `.env` is gitignored.
 
 ### Documentation discipline
 
@@ -239,7 +239,6 @@ For UC Functions with more complex logic (e.g., bootstrap CI computation, geogra
 - **Do not present mismatch scores with false precision.** Bootstrap CIs accompany every rank. *"Sudan is #2 with 95% CI [#1, #3]"* is honest; *"Sudan's overlooked_score is 0.8347"* is not.
 - **Do not silently impute missing data.** Crises with no HRP or stale data are flagged (`chronic_no_plan`, `data_sparsity_flag`), not silently dropped or filled.
 - **Do not produce prescriptive output.** The agent says *"the data suggests..."*, not *"fund X."* This is a hard rule from the brief and Mary Keller's framing. One of the seven Responsible-AI judges (`decision_support_framing`) tests this boundary.
-- **Do not hardcode API credentials.** Use `.env` and `python-dotenv`. Add new required variables to `.env.example` (without values) when needed.
 - **Do not name specific crises in commit messages in ways that could be misread as advocacy.** *"Updated Sudan ranking logic"* is fine; *"Sudan is being systematically ignored"* is not.
 - **Do not change methodology without an entry in `DECISIONS.md` and an update to `docs/methodology.md`.** Documentation and code stay in sync.
 - **Do not edit `STATE.md` or `DECISIONS.md` for one-off utility work.** See "Scope of the end-of-session protocol" above. When in doubt, ask.

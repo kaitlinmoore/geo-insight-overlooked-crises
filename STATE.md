@@ -4,7 +4,7 @@
 
 ## Current focus
 
-Execution phase. Bootstrap docs largely complete; **`docs/schemas.md` now authored** (canonical Bronze/Silver/Gold reference, profiled from real data). Data acquisition mostly complete: CERF UFE, fieldmaps boundaries, **ACLED (events + severity), ECHO FCA, NRC, HDX Signals** all done; **ReliefWeb still blocked on appname**. Databricks environment partially provisioned (Vector Search endpoint up and Online; schema and volume creation blocked on permissions). Architecture uses API-based consumption (no iframe embedding).
+Execution phase. Bootstrap docs largely complete; **`docs/schemas.md` now authored** (canonical Bronze/Silver/Gold reference, profiled from real data). Data acquisition **complete**: CERF UFE, fieldmaps boundaries, ACLED (events + severity), ECHO FCA, NRC, HDX Signals, and **ReliefWeb** (appname approved; v2-API run done — `media_attention` signal and KA corpus both acquired) all done. Databricks environment partially provisioned (Vector Search endpoint up and Online; schema and volume creation blocked on permissions). Architecture uses API-based consumption (no iframe embedding).
 
 ## Last meaningful action
 
@@ -59,7 +59,7 @@ In rough priority order, given current blockers:
 
 2. **Resolve Databricks `CREATE SCHEMA` / `CREATE VOLUME` permissions.** Currently blocking the Bronze layer, Genie space configuration, UC Function registration, and Vector Search indexing. *Owner: human via OCHA/CMU support channels.*
 
-3. **Finish Bronze data acquisition** — ACLED, ECHO FCA, NRC, HDX Signals all **done** (findings in `docs/notes/`). Only **ReliefWeb (prompt 6) remains, blocked on a pre-approved `RELIEFWEB_APPNAME`** (mandatory since 2025-11-01). *Owner: human to request appname; then Claude Code runs `src/acquisition/acquire_reliefweb.py`.*
+3. **Bronze data acquisition complete** — ACLED, ECHO FCA, NRC, HDX Signals, and **ReliefWeb** all **done** (findings in `docs/notes/`). ReliefWeb appname approved and `src/acquisition/acquire_reliefweb.py` ran end-to-end; staged outputs ready for the Bronze loaders. *Next: Bronze ingestion of staged files once schema/volume permissions land.*
 
 4. **Local data profiling.** **Done for schema purposes** — feeds `docs/schemas.md` (authored). A deeper `docs/data-catalog.md` pass (the sector crosswalk, distinct-value inventories) is still outstanding. *Owner: Claude Code or local analysis.*
 
@@ -106,7 +106,7 @@ See `DECISIONS.md` for the full append-only log. Most recent (newest first):
 
 - **Workspace status**: Dedicated team workspace provisioned. Vector Search endpoint provisioned and Online. **Schema and volume creation permissions pending** — requested via OCHA/CMU support; blocking the Bronze layer until granted.
 - **Embedding constraint**: Databricks Apps cannot iframe-embed workspace assets (Genie spaces, AI/BI Dashboards). Pattern shifted to API-based consumption (see `DECISIONS.md` 2026-05-21). All visualization work is now custom React.
-- **Acquisition status**: CERF UFE, fieldmaps boundaries, ACLED (events + severity), ECHO FCA, NRC, and HDX Signals all **complete**; findings in `docs/notes/`. **ReliefWeb is the only outstanding source — blocked on a pre-approved `RELIEFWEB_APPNAME`** (`staging/reliefweb_docs/` empty). `.env.example` now includes `RELIEFWEB_APPNAME`, `ACLED_USERNAME`, `ACLED_PASSWORD`.
+- **Acquisition status**: **All sources complete** — CERF UFE, fieldmaps boundaries, ACLED (events + severity), ECHO FCA, NRC, HDX Signals, and **ReliefWeb fully acquired** (findings in `docs/notes/`). ReliefWeb appname approved and the v2-API acquisition ran end-to-end; **both deliverables are on disk in `staging/`**: (1) the **v1 `media_attention` signal** — 47,339 metadata rows + a dense 900-cell (25 countries × 36 months) `report_count` grid, no longer a composite gap; and (2) the **KA stretch corpus** — 500 docs / 182,890 words (median 281; 45 below the 100-word filter → ≈454 usable), making the **Knowledge Assistant stretch goal viable** (corpus exists, Vector Search endpoint Online). One quirk to honor downstream: inclusive `country.iso3` association means 21.3% of reports are multi-country tagged — `report_count` is per-country by design and must not be summed to a global total.
 - **Git state**: Bootstrap docs, `src/`, and `docs/` are **not yet committed** to git. Only `.gitignore`, `README.md`, and `LICENSE` are tracked. Highest-priority next action is establishing the git baseline.
 - **Submission deadline**: Extended from the original Thursday May 21 23:59 EST. Specific extended deadline per Tanvir's communication — update this line when confirmed.
 - **Working solo.** No team coordination overhead.
