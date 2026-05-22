@@ -1,0 +1,5 @@
+# Geo-Insight FastAPI backend — scaffolding dependencies.
+# The Databricks SQL Connector and any agent/Genie SDK are intentionally NOT
+# added yet (out of scope this session); add them in the integration session.
+fastapi>=0.115,<0.116
+uvicorn[standard]>=0.32,<0.33
