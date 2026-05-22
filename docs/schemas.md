@@ -677,7 +677,8 @@ The composite `overlooked_score` with uncertainty and classification.
 
 - **Transforms**: within-year percentile-rank normalization of each component; weighted composite; Dirichlet bootstrap for CIs.
 - **Side output**: `silver_excluded_with_signal` — countries failing the severity gate, written to a separate Delta table for transparency. Despite the `silver_` prefix, it is computed during the Gold build, not by a Silver DLT.
-- **DQ**: `expect` score_in_unit_interval; `expect` rank_ci_low ≤ rank_position ≤ rank_ci_high; `expect` no_silent_drop (every gated-out country present in `excluded_with_signal`); **no false precision** — score rounded for display downstream, CI always present.
+- **DQ**: `expect` score_in_signed_unit_range (`overlooked_score BETWEEN -0.10 AND 0.90`); `expect` rank_ci_low ≤ rank_position ≤ rank_ci_high; `expect` no_silent_drop (every gated-out country present in `excluded_with_signal`); **no false precision** — score rounded for display downstream, CI always present.
+- **Score range note**: the raw `overlooked_score` is bounded to **[−0.10, 0.90]**, not [0, 1]. The negative-signed `media_attention` term (magnitude 0.10) with the absolute component weights summing to 1.0 makes the range asymmetric: when every positive component is at its max and media at its min the score reaches +0.90, and the lone negative term floors it at −0.10. This is internal-only — **the UI leads with rank + bootstrap CI per the no-false-precision rule**, never the raw score — so the asymmetric range needs no rescaling.
 
 ## gold_funding_funnel  🟡 (country × year × stage)
 

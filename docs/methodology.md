@@ -149,7 +149,7 @@ media_attention = COUNT(ReliefWeb situation reports about country in last 12 mon
 
 Range varies by data window. Normalized to 0-1 within year via percentile rank across all in-scope countries.
 
-The composite weights this signal **negatively**: higher attention reduces overlooked-ness because attention is part of what "overlooked" means. A crisis can be severely underfunded and yet not overlooked if it commands sustained advocacy and coverage. Conversely, a crisis can be moderately underfunded but truly overlooked because no one is talking about it.
+The composite applies this signal with **weight magnitude 0.10 and a negative sign** (`overlooked_score = … − 0.10 × media_attention_norm + …`). The negative sign is the operationalization of "overlooked" — a crisis with high media attention is not overlooked, no matter how underfunded. A crisis can be severely underfunded and yet not overlooked if it commands sustained advocacy and coverage; conversely, a crisis can be moderately underfunded but truly overlooked because no one is talking about it.
 
 ### Geographic isolation
 
@@ -192,7 +192,7 @@ w2 ≈ 0.20  (severity rate)
 w3 ≈ 0.10  (per-capita investment)
 w4 ≈ 0.15  (chronic index — bonus task contribution)
 w5 ≈ 0.10  (sector imbalance)
-w6 ≈ 0.10  (media attention, negative)
+w6 ≈ 0.10  (media attention — magnitude 0.10, applied with negative sign)
 w7 ≈ 0.05  (geographic isolation, as need multiplier)
 ```
 

@@ -130,6 +130,10 @@ Documented for the deck's roadmap claim. Each has architectural support so the e
 
 **Simultaneous-comparison visualization for the bonus task.** Quadrant chart of acute vs. chronic. Methodologically valuable; Day 4 stretch goal. The classification + ranking toggle ships in v1 either way (see `DECISIONS.md` 2026-05-21 bonus-task entry).
 
+**Geographic isolation distance-to-urban-centroid sub-signal.** Currently 3 of 4 planned sub-signals (`data_sparsity`, `inverse_acled_density`, `contested_border`). Distance-to-urban-centroid deferred — no urban-center reference table acquired (GHS-UCDB or equivalent). For v1 the remaining three sub-weights are renormalized to sum to 1. *Resolution path: acquire GHS Urban Centre Database (or equivalent global urban-center reference); add to Bronze; compute distance per country centroid; calibrate the four-component weighting against expert review.*
+
+**`gold_change_indicators` quarter-grain support.** `schemas.md` describes `(iso3, period)` PK with `2026-Q1`-style period values; current implementation is year-grain only. *Resolution path: introduce intra-year index snapshots — incremental Gold runs at quarter boundaries with snapshot date in PK; refresh `gold_change_indicators` from the snapshot history rather than from a single annual run. Out of scope for v1.*
+
 ## Resolved during synthesis
 
 These were open at the start of the synthesis and are now closed. Pointers to where each resolution is recorded:

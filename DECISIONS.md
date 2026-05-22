@@ -18,6 +18,42 @@ Architectural and methodological decisions for this project. Append-only. Newest
 
 ---
 
+## 2026-05-22 — gap_ratio numerator is paid-only as headline
+
+**Decision:** The headline `gold_forgotten_crisis_index.overlooked_score` derives from `gap_ratio = (requirement − paid) / requirement` (paid-only). The `gap_ratio_paid_committed` variant is computed and emitted alongside as a sibling column for sensitivity analysis but is not the headline. Affected: `notebooks/gold/_common.py:GAP_NUMERATOR = "paid"`. Both `gap_ratio` (paid-only headline) and `gap_ratio_paid_committed` (variant) land in `gold_forgotten_crisis_index` and `gold_explanation_features`.
+
+**Alternatives considered:** paid+committed as the headline numerator — rejected because it risks over-counting committed-but-never-paid funds (historical FTS data shows commitments don't always materialize). Preserved as the `gap_ratio_paid_committed` sibling column for sensitivity analysis rather than discarded.
+
+**Rationale:** `methodology.md` and `schemas.md` both specify paid-only; the validation slide content assumes paid-only in its formulas; UFE selection criteria align with stricter interpretations of "underfunded." The variant is preserved for the methodology slide's sensitivity analysis and any future calibration work.
+
+**Revisit if:** sensitivity analysis on the variant shows the paid-only headline materially distorts rankings, or stakeholder framing of "underfunded" shifts to include committed funds.
+
+---
+
+## 2026-05-22 — overlooked_score true range is [−0.10, 0.90]
+
+**Decision:** The composite formula's negative `media_attention` weight (magnitude 0.10) combined with absolute weights summing to 1.0 bounds the raw `overlooked_score` to **[−0.10, 0.90]**, not [0, 1] as the original `schemas.md` DQ note implied. No rescaling applied to the raw column. Affected: `schemas.md` DQ check updated from `score_in_unit_interval` to `score_in_signed_unit_range` with the [−0.10, 0.90] expression. Frontend reads the rank, not the raw score, so no UI change needed.
+
+**Alternatives considered:** rescaling the raw score back into [0, 1] — rejected because the faithful formula is correct and the DQ note was the inconsistent artifact; rescaling would distort the signed contribution of the media-attention term.
+
+**Rationale:** Bootstrap CIs are computed on rank position, not on the raw score, so the asymmetric range is academic for the UI — rank + CI is the headline per the no-false-precision rule.
+
+**Revisit if:** the raw `overlooked_score` ever becomes user-facing, or the component weights change such that the bound shifts.
+
+---
+
+## 2026-05-22 — Missing-component imputation is neutral 0.5 percentile
+
+**Decision:** When a country lacks a raw input for a normalized component (e.g., no INFORM severity reading, no ReliefWeb attention data, no admin1 PIN), the within-year percentile-rank normalization assigns **0.5** (neutral midpoint). The `data_sparsity_flag` is carried through to `gold_forgotten_crisis_index.inputs_freshness` to surface the imputation to users. Affected: `notebooks/gold/_common.py` — both `composite_score_expr` (coalesce defaults) and `dirichlet_bootstrap_rank_ci` (fillna defaults). The sparsity flag display is a frontend concern; the contract already exposes `data_sparsity_flag` per `inputs_freshness`.
+
+**Alternatives considered:** (a) the default behavior (norm ≈ 0 via Spark's nulls-first ordering in `percent_rank()`) — rejected because it understates data-sparse countries by treating missing data as "least overlooked on that dimension," contradicting the project's *missing data is signal* commitment. (b) an explicit penalty for missing data — rejected because it is harder to defend, ranking countries by what we *don't know*.
+
+**Rationale:** Neutral imputation preserves rank ordering for measurable components without penalizing sparse countries, while the carried-through `data_sparsity_flag` keeps the imputation visible rather than silent.
+
+**Revisit if:** validation shows neutral imputation systematically advantages or disadvantages a class of data-sparse countries, or a defensible explicit-penalty scheme emerges.
+
+---
+
 ## 2026-05-22 — gap_ratio denominator is per-country requirements, not plan-total
 
 **Decision:** `gap_ratio` denominator is per-country requirements, not plan-total. Profiling found that multi-country plan totals (HRP `revisedRequirements`) would over-attribute to each constituent country if used directly per-country. `bronze_fts_plan.requirements` is already at country × plan grain and is the correct per-country denominator. HRP `revisedRequirements` ÷ country_count is the fallback when FTS lacks a per-country breakdown.
