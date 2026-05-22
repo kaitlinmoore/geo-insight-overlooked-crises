@@ -8,6 +8,8 @@ Execution phase. Bootstrap docs largely complete; **`docs/schemas.md` now author
 
 ## Last meaningful action
 
+2026-05-22 — CBPF projects acquisition integrated; three Silver tables added (`silver_media_attention`, `silver_cbpf_contributions`, `silver_cbpf_projects`); `silver_requirements` denominator clarified to per-country FTS plan rows primary; `silver_excluded_with_signal` recategorized as Gold side-output.
+
 2026-05-22 — Three schema/methodology refinements adopted following the data profiling pass (`docs/notes/data_profiling.md`) and the schemas.md authoring session: multi-country flow cascade framing reconciled to empirical distribution; `Not specified` country-aggregate FTS rows retained as a Silver grain (preserving signal for no-HRP countries like ETH 2026); INFORM Severity Bronze loader dispatches on sheet name to handle GCSI legacy files. Five lesser items appended to `docs/open-questions.md` (2026 mega-flow attribution, Ethiopia HNO gap, Venezuela stale population, INFORM content-hash dedupe, CBPF Contributions within-file dupes). See DECISIONS 2026-05-22 for the full rationale.
 
 2026-05-22 — Authored `docs/schemas.md` covering the full medallion set — the task's 15 Bronze + 12 Silver + 11 Gold tables, plus an added `bronze_acled_severity` / `silver_acled_severity` pair (16 Bronze, 13 Silver in total) — profiled from the actual CMU drop (`data/databricks_data/unocha/`) and staging outputs (Bronze types are real, not guessed). Surfaced schema realities that change loader/methodology assumptions (logged in `DECISIONS.md` 2026-05-22):

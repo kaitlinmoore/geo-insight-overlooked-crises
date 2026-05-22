@@ -18,6 +18,12 @@ Architectural and methodological decisions for this project. Append-only. Newest
 
 ---
 
+## 2026-05-22 — gap_ratio denominator is per-country requirements, not plan-total
+
+**Decision:** `gap_ratio` denominator is per-country requirements, not plan-total. Profiling found that multi-country plan totals (HRP `revisedRequirements`) would over-attribute to each constituent country if used directly per-country. `bronze_fts_plan.requirements` is already at country × plan grain and is the correct per-country denominator. HRP `revisedRequirements` ÷ country_count is the fallback when FTS lacks a per-country breakdown.
+
+---
+
 ## 2026-05-22 — Three schema/methodology refinements following local data profiling
 
 **Decision:** Three concrete adjustments to `docs/schemas.md` and `docs/methodology.md` following profiling of the CMU drop (see `docs/notes/data_profiling.md`). None of these change the core methodology or overturn a prior DECISIONS entry; they reconcile documented design with what the actual data supports.

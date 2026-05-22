@@ -395,7 +395,7 @@ The `silver_fund_country_map` reference table maps each fund name → primary co
 
 **Known quirks:**
 - One file per year; concatenate at Bronze; dedupe 23 exact duplicates.
-- No sector tagging on allocations (this is an important methodology fact for `gold_sector_coverage` — sector decomposition for CBPF would require following each allocation through to the underlying project, which is out of scope for v1).
+- No sector tagging on allocations — this fund/year/window aggregate has no sector field. The sector decomposition for CBPF now lives in the sibling `bronze_cbpf_projects` (project × cluster grain, acquired 2026-05-22), which reconciles to this table at year-total level (±2.8%/0.3%/−7.9% for 2024/2025/2026) and feeds `gold_sector_coverage`. The two join on (`year`, `fund_id`/normalized fund, `allocation_window`).
 
 ## bronze_cbpf_contributions
 
@@ -430,6 +430,34 @@ The `silver_fund_country_map` reference table maps each fund name → primary co
 
 **Known quirks:**
 - 289 within-file duplicates on `(Year, Donor)`: Silver aggregation rule sums `Paid`/`Pledged`/`Total` over the key, retains a `n_records` count for transparency.
+
+## bronze_cbpf_projects
+
+**Source file (staging):** `staging/cbpf_projects.csv` — 8.2 MB, 24,219 rows (project × cluster), 2010–2026, all 34 funds covered. 100% cluster-tagged, 100% valid iso3, 100% ProjectSummary-enriched. See `docs/notes/acquisition_cbpf_projects.md`.
+
+**Volume target:** `/Volumes/geo_insight/raw/staging/cbpf/cbpf_projects.csv`
+
+**Update cadence:** Monthly (OData API `data_update_frequency: 30`).
+
+**Provenance:** OCHA CBPF Business Intelligence OData API (`cbpfapi.unocha.org/vo1/odata/`, entity `Cluster`/`ExcelClusterBase`, joined to `Poolfund` and `ProjectSummary`), discovered via the HDX dataset `cbpf-allocations-and-contributions`. License CC BY (IGO). No auth. Acquired via `src/acquisition/acquire_cbpf_projects.py`.
+
+**Join keys:** `iso3` ↔ `silver_country_dim.iso3`; `cluster` ↔ `silver_sector_crosswalk.cbpf_category`; `fund_id` / `fund_name` ↔ `silver_fund_country_map`. **Join on `fund_id` (= `Poolfund.Id`), not the name** — names are ambiguous (`Colombia` Id 52 vs `Colombia (RhPF)` Id 87 are distinct funds that normalize to the same base; likewise Haiti 54/88, Pakistan 60/97).
+
+**Distinct-value inventories — verified per acquisition note:**
+
+*Cluster values (15 distinct, all IASC-recognizable):* `Water, Sanitation and Hygiene`, `Protection`, `Health`, `Food Security`, `Emergency Shelter and NFI`, `Nutrition`, `Education`, `Camp Coordination / Management`, `Early Recovery`, `Coordination and Support Services`, `Logistics`, `COVID-19` (48 rows; reassign to Health post-2023 per crosswalk), `Emergency Telecommunications`, `Multi-purpose CASH`, `Multi-Sector`. 13 map cleanly to existing crosswalk rows; `Multi-purpose CASH` and `Multi-Sector` were added as crosswalk variant strings (casing).
+
+*Per-year row counts:* 2010: 36 · 2011: 227 · 2012: 172 · 2013: 212 · 2014: 819 · 2015: 1,175 · 2016: 1,538 · 2017: 1,664 · 2018: 1,800 · 2019: 2,110 · 2020: 1,903 · 2021: 2,184 · 2022: 2,385 · 2023: 2,176 · 2024: 2,247 · 2025: 2,727 · 2026: 844 (partial year).
+
+*`allocation_window`:* `standard` (15,115) / `reserve` (9,104).
+
+*Reconciliation vs `bronze_cbpf_allocations` (year totals):* 2024 +2.8% · 2025 +0.3% · 2026 −7.9%. All within ±15%; the 2026 shortfall is in-year project-entry lag in GMS (allocation announced vs project approved-and-entered), not a data gap.
+
+**Known quirks:**
+- Two `iso3` overrides applied at acquisition: Mozambique RhPF source `LI` (Liechtenstein) → `MOZ`; Syria Cross border source `XX` → `SYR`. This makes two funds share `iso3=SYR` (`Syria` Id 62 + `Syria Cross border` Id 70) — distinct at fund grain, combined only at iso3 grain.
+- `sub_cluster` only 6.2% populated; not profiled against the crosswalk's Protection sub-cluster rows (`PRO-*`) — deferred to v2.
+- CBPF `Multi-purpose CASH` / `Multi-Sector` are casing variants of the harmonized Multipurpose Cash / Multi-sector buckets; both added to `silver_sector_crosswalk.fts_cluster_variants`.
+- One fund missing vs the 34 bronze funds: `Honduras (RhPF-LAC)` (new 2026 fund, no projects entered yet — re-pull after the monthly GMS refresh catches up).
 
 ## bronze_cerf_allocations
 

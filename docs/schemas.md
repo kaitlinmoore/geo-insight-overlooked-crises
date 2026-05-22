@@ -220,6 +220,38 @@ CBPF inflows (donor contributions into the pooled-fund system).
 | `Pledged` | int | no | Pledged USD. |
 | `Total` | int | no | Paid + Pledged. |
 
+## bronze_cbpf_projects  ✅ acquired (was "needed" — landed via the OCHA CBPF OData API)
+
+CBPF allocations at **project × cluster** grain — the sector-tagged CBPF source that `bronze_cbpf_allocations` (fund/year/window aggregate, no sector) lacks. Closes the CBPF leg of the sector crosswalk.
+
+- **Source**: `staging/cbpf_projects.csv` (8.2 MB, 24,219 rows, 2010–2026, all 34 funds, 100% cluster-tagged, 100% valid iso3). OCHA CBPF Business Intelligence OData API, discovered via HDX `cbpf-allocations-and-contributions`. CC BY-IGO, monthly refresh, no auth. See `docs/notes/acquisition_cbpf_projects.md`.
+- **Grain**: project × cluster (a project covering N clusters yields N rows; `amount_usd` is that cluster's slice). **PK**: (`project_code`, `cluster`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `year` | int | Allocation year (`Cluster.AllocationYear`). 2010–2026. |
+| `fund_id` | int | `Cluster.PooledFundId`; the stable join key to the fund (unambiguous, unlike the name). |
+| `fund_name` | string | `Cluster.PooledFundName`; 34 distinct. Aligns with `bronze_cbpf_allocations.PooledFund` after suffix normalization. |
+| `iso3` | string | Derived from `Poolfund.CountryCode` (alpha-2→alpha-3); 2 source overrides (see Quirk). 100% valid. |
+| `country_name` | string | pycountry canonical from `iso3`. |
+| `cluster` | string | `Cluster.Cluster` — IASC cluster. 15 distinct, 0 null. Join key to `silver_sector_crosswalk.cbpf_category`. |
+| `sub_cluster` | string | `Cluster.SubCluster`. Sparse (6.2% populated); v1 unused (see Quirk). |
+| `cluster_percentage` | float | Cluster's share of the project budget. |
+| `amount_usd` | float | `Cluster.ClusterBudget` — this cluster's USD slice. 0 null. |
+| `allocation_window` | string | `standard` (15,115) / `reserve` (9,104). Joins to `bronze_cbpf_allocations.AllocationType`. |
+| `project_code` | string | `Cluster.ChfProjectCode` — unique project key (e.g. `SSD-18/HSS10/SA2/FSL/UN/10025`). |
+| `chf_id` | int | `Cluster.ChfId` — internal project id (per-fund, not globally unique). |
+| `project_title` | string | `ProjectSummary.ProjectTitle`. 100% filled. |
+| `recipient_organization` | string | `ProjectSummary.OrganizationName`. 100% filled. |
+| `recipient_organization_type` | string | UN Agency / International NGO / National NGO / RedCross-RedCrescent. |
+| `project_status` | string | e.g. Project Closed, Project Closure, Ongoing. |
+| `actual_start_date` | string→date | `YYYY-MM-DD`; empty where source carries the `0001-01-01` null sentinel. |
+| `actual_end_date` | string→date | Same null handling. |
+
+**Notes**: Joins to `silver_sector_crosswalk` on `cluster` → `cbpf_category` (populated for 15 of 25 crosswalk rows after the 2026-05-22 crosswalk update). Joins to `silver_fund_country_map` on `fund_name`/`fund_id`; `iso3` carries two documented source overrides (`LI`→`MOZ` for Mozambique RhPF, `XX`→`SYR` for Syria Cross border). Year-total budgets reconcile to `bronze_cbpf_allocations` within ±15% (verified 2024 +2.8% / 2025 +0.3% / 2026 −7.9%; the 2026 shortfall is in-year project-entry lag, not a data gap).
+
+**Quirk**: `sub_cluster` is only 6.2% populated and was **not** profiled against the crosswalk's Protection sub-cluster rows (`PRO-CPN`, `PRO-GBV`, `PRO-MIN`, `PRO-HLP`, `PRO-HTS`); v1 uses the parent `cluster` field only. Two `Poolfund.CountryCode` values are wrong/placeholder at source (`LI`→`MOZ`, `XX`→`SYR`); both are corrected at acquisition. Note this makes two funds share `iso3=SYR` (`Syria` + `Syria Cross border`) — distinct at fund grain, combined only at iso3 grain.
+
 ## bronze_inform_severity  ✅ profiled (🟡 multi-sheet workbook)
 
 Monthly INFORM Severity snapshots (ACAPS). The hardest Bronze source — each file is a 21-sheet analytical workbook full of cross-sheet formulas.
@@ -512,7 +544,7 @@ Cleaned, country-attributed funding flows.
 ## silver_subnational_needs  🟡 (admin1 × sector from HNO where available)
 
 - **Source**: `bronze_hno` 2024/2025 admin rows only (2026 has none). **Grain**: country × year × admin1 × cluster. **PK**: (`admin1_pcode`, `year`, `cluster`).
-- **Columns**: `iso3`, `year`, `admin1_pcode`, `admin1_name`, `admin2_pcode` (nullable), `cluster`, `people_in_need` (bigint), `targeted` (bigint).
+- **Columns**: `iso3`, `year`, `admin1_pcode`, `admin1_name`, `admin2_pcode` (nullable), `cluster`, `people_in_need` (bigint), `targeted` (bigint), `admin1_derived` (boolean — `true` when `admin1_pcode` was derived by P-code-prefix rollup from admin2 rows (SDN, YEM, HTI, VEN, NGA in HNO 2025), `false` when read directly from HNO. Carried for provenance).
 - **Transforms**: keep rows with non-null `Admin 1 PCode`; aggregate admin2→admin1 where finer; emit `data_sparsity_flag` upstream for countries absent here.
 - **DLT**: `expect_or_drop` non_null_admin1_pcode; `expect` pcode_prefix_matches_iso3 (warn).
 - **⚠️ Coverage note**: HNO 2026 dropped subnational columns entirely, so 2026 subnational needs are unavailable from HNO — `gold_subnational_index` for 2026 must fall back or carry `data_sparsity_flag`.
@@ -520,8 +552,9 @@ Cleaned, country-attributed funding flows.
 ## silver_requirements  🟡 (country × year from HRP)
 
 - **Source**: `bronze_hrp` + `bronze_fts_plan`. **Grain**: country × year × plan. **PK**: (`iso3`, `year`, `plan_code`).
-- **Columns**: `iso3`, `year`, `plan_code`, `plan_name`, `plan_type`, `requirement_usd` (double, from `revisedRequirements`), `is_multi_country` (bool), `country_list` (array<string>, from pipe-split `locations`), `start_date`, `end_date`.
-- **Transforms**: pipe-split `locations`→array; mark multi-country; prefer `revisedRequirements`, fall back to `origRequirements`.
+- **Columns**: `iso3`, `year`, `plan_code`, `plan_name`, `plan_type`, `requirement_usd` (double — see sourcing note below), `is_multi_country` (bool), `country_list` (array<string>, from pipe-split `locations`), `start_date`, `end_date`.
+- **Transforms**: pipe-split `locations`→array; mark multi-country; unify the HRP/HNRP plan-type rename into a single `country_response_plan`.
+  - **`requirement_usd` sourcing**: primary source is `bronze_fts_plan.requirements` (already at country × plan grain), with `bronze_hrp.revisedRequirements` (plan-total, divided by country count) → `origRequirements` as fallback when the FTS plan lacks a per-country breakdown. Per-country is the correct denominator for a per-country `gap_ratio` — using the plan-total directly would over-attribute to each constituent country in a multi-country plan. (Because `bronze_fts_plan` is natively country × plan grain, this sourcing needs no allocation cascade and introduces no dependency on `silver_fts_flows`.)
   - **Dual grain**: carry two row types: (a) plan-level rows joined `bronze_fts_plan` ↔ `bronze_hrp` on `code`, attributed to country via the multi-country cascade where the plan covers multiple countries; (b) country-aggregate rows from `bronze_fts_plan` where `code IS NULL` and `name='Not specified'`, attributed directly to `countryCode` with `plan_code = NULL`. Both flow into `gold_funding_funnel` and `gold_forgotten_crisis_index` so no-HRP countries retain their off-plan funding signal.
 - **DLT**: `expect_or_drop` non_negative_requirement; `expect_or_drop` valid_dates (`end_date >= start_date`); `expect` plan_code_unique_per_year.
 
@@ -545,6 +578,23 @@ Cleaned, country-attributed funding flows.
 - **Columns**: `year` (int), `fund_name` (string), `fund_iso3` (string, mapped; null for genuinely regional funds), `is_regional_fund` (bool), `allocation_type` (string), `budget_usd` (bigint).
 - **Transforms**: map `PooledFund`→ISO3 (strip ` (AP-RHPF)` suffixes; flag regional); keep regional funds with null ISO3 + flag.
 - **DLT**: `expect_or_drop` non_negative_budget; `expect` allocation_type_valid (`IN ('standard','reserve')`).
+
+## silver_cbpf_contributions  🟡
+
+- **Source**: `bronze_cbpf_contributions` (2,132 raw rows, 1,843 unique on `(Year, Donor)`).
+- **Grain**: year × donor. **PK**: (`year`, `donor`).
+- **Columns**: `year` (int), `donor` (string), `donor_type` (string), `paid_usd` (long), `pledged_usd` (long), `total_usd` (long), `n_records` (int — count of source rows aggregated; transparency for the 289 within-file dupes).
+- **Transforms**: aggregate sum over `(year, donor)`; preserve `n_records` for audit.
+- **DLT**: `expect_or_drop` non_negative_total; `expect` valid_year (warn).
+- **Note**: No country attribution available in source — CBPF Contributions are global donor totals per year. Used for the optional CBPF Allocation View screen (PFM persona); NOT used for `gold_donor_concentration` (that comes from `silver_fts_flows.donor_org` per DECISIONS 2026-05-22).
+
+## silver_cbpf_projects  🟡 (country × year × harmonized_sector from CBPF projects)
+
+- **Source**: `bronze_cbpf_projects` + `silver_sector_crosswalk` (cluster→`cbpf_category`) + `silver_fund_country_map`. **Grain**: country × year × harmonized_sector. **PK**: (`iso3`, `year`, `harmonized_sector_id`).
+- **Columns**: `iso3`, `year`, `harmonized_sector_id`, `harmonized_sector`, `cbpf_funding_usd` (double — sum of `amount_usd` over project×cluster rows), `project_count` (distinct projects), `fund_count` (distinct funds).
+- **Transforms**: join `bronze_cbpf_projects.cluster` to `silver_sector_crosswalk.cbpf_category` (**case-sensitive** — the CBPF taxonomy uses specific casing like `Multi-purpose CASH`); aggregate to country × year × harmonized_sector. Unresolved clusters are routed to a `_quarantine` (NULL `harmonized_sector_id` bucket surfaced by `crosswalk_resolved`) rather than silently dropped.
+- **DLT**: `expect_or_drop` valid_iso3, non_negative_funding; `expect` crosswalk_resolved (warn — catches new CBPF cluster names that need crosswalk additions); `expect` sub_cluster_dropped_v1 (warn — surfaces sector-groups whose source rows carried non-null `sub_cluster` dropped in v1, for v2 audit).
+- **v2**: profile `sub_cluster` (6.2% populated) against the crosswalk's Protection sub-cluster rows (`PRO-CPN`, `PRO-GBV`, `PRO-MIN`, `PRO-HLP`, `PRO-HTS`). CBPF `COVID-19` maps to harmonized `COVID-19` here; the crosswalk's "reassign to Health post-2023" rule is applied at Gold, not in this Silver aggregation.
 
 ## silver_cerf_allocations  🟡
 
@@ -574,6 +624,15 @@ Cleaned, country-attributed funding flows.
 - **Columns**: cleaned Bronze + `iso3` coalesced from `priority_iso3` (fills GTM/HND/PHL nulls).
 - **Transforms**: coalesce ISO3; optionally drop zero rows for analytic views (keep in base).
 - **DLT**: `expect_or_drop` non_negative_events; `expect` valid_category; `expect` iso3_present_after_coalesce.
+
+## silver_media_attention  🟡
+
+- **Source**: `bronze_reliefweb_attention` (900 rows, 25 countries × 36 months dense grid).
+- **Grain**: country × year. **PK**: (`iso3`, `year`).
+- **Columns**: `iso3` (string), `year` (int), `report_count_annual` (int — sum of monthly report counts for the year), `media_attention_norm` (double — within-year percentile rank, 0–1; **input to the negative-weight component in `gold_forgotten_crisis_index`**).
+- **Transforms**: aggregate monthly `report_count` to annual; within-year percentile-rank normalization; flag countries with zero coverage in the analysis year via `report_count_annual = 0` (the dense grid preserves zeros explicitly — these are real, not missing data).
+- **DLT**: `expect_or_drop` valid_iso3, non_negative_count; `expect` norm_in_unit_interval (warn).
+- **Note**: Per `acquisition_reliefweb.md`, don't sum `report_count` across countries to form a global denominator — 21.3% of reports are multi-country-tagged and the signal is per-country by design.
 
 ## silver_boundaries  🟡 (geoparquet, admin0/1/2)
 
@@ -617,6 +676,7 @@ The composite `overlooked_score` with uncertainty and classification.
 | `inputs_freshness` | struct | Per-source last-updated dates. |
 
 - **Transforms**: within-year percentile-rank normalization of each component; weighted composite; Dirichlet bootstrap for CIs.
+- **Side output**: `silver_excluded_with_signal` — countries failing the severity gate, written to a separate Delta table for transparency. Despite the `silver_` prefix, it is computed during the Gold build, not by a Silver DLT.
 - **DQ**: `expect` score_in_unit_interval; `expect` rank_ci_low ≤ rank_position ≤ rank_ci_high; `expect` no_silent_drop (every gated-out country present in `excluded_with_signal`); **no false precision** — score rounded for display downstream, CI always present.
 
 ## gold_funding_funnel  🟡 (country × year × stage)
@@ -710,9 +770,8 @@ Adjacent overlooked admin1 areas across borders.
 
 | Table | Source | Purpose |
 |---|---|---|
-| `silver_sector_crosswalk` | hand-built CSV (25 rows) + `bronze_fts_globalcluster.cluster` + HNO `Cluster` | Harmonize HNO cluster ↔ FTS sector (CBPF sector pending project-level data; the CBPF column in the CSV is empty by design — see `docs/data_catalog.md` → `bronze_cbpf_allocations` for the reasoning). Documented in `docs/data-catalog.md`. |
+| `silver_sector_crosswalk` | hand-built CSV (25 rows) + `bronze_fts_globalcluster.cluster` + `bronze_cbpf_projects.cluster` + HNO `Cluster` | Harmonize HNO cluster ↔ FTS sector ↔ CBPF cluster. CBPF column populated 2026-05-22 from `bronze_cbpf_projects`; 15 of 25 crosswalk rows carry a CBPF cluster name (10 are FTS-only sub-clusters, the Agriculture sub-row, or `NOT_A_SECTOR_*` meta-rows). See `docs/notes/acquisition_cbpf_projects.md` for the mapping audit. |
 | `silver_fund_country_map` | hand-built from `bronze_cbpf_allocations.PooledFund` distinct values | Map CBPF fund names → ISO3, flag regional funds. |
-| `silver_excluded_with_signal` | `gold_forgotten_crisis_index` build | Countries failing the severity gate — kept for transparency (missing data as signal). |
 
 ---
 
