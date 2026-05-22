@@ -14,8 +14,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# NOTE: the Python-template `lib/` and `lib64/` rules are deliberately REMOVED.
+# This repo uses `lib/` for source — `src/lib/` (shared portable Python) and
+# `frontend/src/lib/` (the TS data/fetch layer). A bare `lib/` rule ignores both.
+# Do not re-add them; there is no Python build that emits a top-level `lib/` here.
 parts/
 sdist/
 var/
