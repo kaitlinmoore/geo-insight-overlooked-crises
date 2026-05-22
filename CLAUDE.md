@@ -150,7 +150,7 @@ Read additionally based on what you're doing:
 1. Update `STATE.md` with what was done, what's next, any new open questions
 2. If a decision was made, append to `DECISIONS.md` (top of file, newest first)
 3. Update the relevant `docs/` file if domain content changed
-4. Commit and push the changes
+4. Do not commit and push the changes. Let me know you have finished so I can audit first. I will make commits and push.
 
 **Scope of the end-of-session protocol.** This protocol applies when the work substantively changes the project's state — new pipelines, new Gold tables, new agent tools, new architectural choices, methodology changes, schema decisions. For one-off utility tasks (data acquisition into local staging, profiling scripts, debugging snippets, exploratory analysis), do **not** edit `STATE.md` or `DECISIONS.md`. Report findings in chat and let the human integrate them into the appropriate docs. If you're unsure whether your work qualifies as substantive, ask the human before editing.
 
