@@ -18,6 +18,28 @@ Architectural and methodological decisions for this project. Append-only. Newest
 
 ---
 
+## 2026-05-22 — Three schema/methodology refinements following local data profiling
+
+**Decision:** Three concrete adjustments to `docs/schemas.md` and `docs/methodology.md` following profiling of the CMU drop (see `docs/notes/data_profiling.md`). None of these change the core methodology or overturn a prior DECISIONS entry; they reconcile documented design with what the actual data supports.
+
+1. **Multi-country flow cascade — framing refined, order unchanged.** The four-step cascade (`country_tagged` → `requirements_weighted` → `population_weighted_fallback` → `regional_unattributed`) is preserved. But "requirements-weighted as the primary method" is reframed: in the actual incoming-flow data (9,255 rows, $14.24B 2020-2026), 94.3% of rows / 68.5% of $ are single-country (`country_tagged`); 5.7% of rows / 31.5% of $ are multi-country, of which 99.1% carry no `destPlan`. So `requirements_weighted` fires on ~5 of 528 multi-country flows; `population_weighted_fallback` is the de facto handler for ~30% of incoming dollars. The cascade order is methodologically right where the data exists; the framing in `methodology.md` overstated how often the primary leg applies. Updated to acknowledge the empirical distribution; the Methodology slide will show the share-by-method table as a transparency feature.
+
+2. **`Not specified` / country-aggregate FTS rows retained as a Silver grain.** `fts_requirements_funding_global.csv` has 2,577 rows (67%) where `code` is NULL and `name='Not specified'` — country-aggregate rows carrying off-plan funding (e.g. ETH 2026 has $256M in this bucket and no HRP at all). The previously-documented v1 approach ("use plan-level rows joined to `bronze_hrp`") would silently drop these, zeroing out funding for any country without a current plan and emptying the `chronic_no_plan` category the bonus-task decision created. Silver now carries both grains: plan-level rows attributed via the cascade, and country-aggregate `Not specified` rows attributed directly to the country with `plan_code IS NULL`.
+
+3. **INFORM Severity Bronze loader dispatches on sheet name.** 20 of 89 INFORM Severity files (Jan 2019 – Aug 2020) use the legacy sheet name `GCSI`; 69 (Sep 2020 onward) use `INFORM Severity - country` — same downstream schema after the row-3 `Weights` drop. Without dispatch, the 2019-2020 history wouldn't load, breaking 20 months of the chronic_index substrate.
+
+**Alternatives considered:**
+
+- (1a) Re-order the cascade so population-weighted is "primary": rejected because requirements-weighted is still the methodologically preferred method where the data supports it; the cascade order is right, the framing was misleading.
+- (2a) Drop the `Not specified` rows and exclude no-HRP countries from the ranking: rejected because that silently makes the `chronic_no_plan` category empty for countries that don't have plans in the analysis year — exactly the population the category was designed to surface.
+- (3a) Only load the post-2020 INFORM files: rejected because the chronic_index needs the longest defensible time series; 20 months of leading history is worth a sheet-name conditional.
+
+**Rationale:** Each adjustment reconciles documented design with the data that exists. None invalidates earlier decisions; all three keep the methodology coherent and the audit trail honest.
+
+**Revisit if:** ACLED account upgrade or FTS multi-country attribution improvements change the cascade distribution materially; CBPF data evolves to include fund-level attribution.
+
+---
+
 ## 2026-05-22 — Table schemas formalized in docs/schemas.md; ACLED split into two Bronze tables
 
 **Decision:** Authored `docs/schemas.md` as the canonical Bronze/Silver/Gold schema reference, profiled from the actual CMU drop and staging outputs. Three schema choices in it materially touch methodology and are recorded here:

@@ -249,7 +249,7 @@ FTS records funding flows at the plan level, but some plans cover multiple count
 
 Each split row in `silver_fts_flows` carries `allocation_method`, `allocation_weight`, and `source_flow_id` for full lineage back to `bronze_fts_flows`. The methodology slide reports the fraction of total flow value falling into each method as a transparency measure.
 
-Why requirements-weighted is the primary method: plans are negotiated bottom-up with per-country requirements that reflect humanitarian need. Allocating regional flows by those same proportions is self-consistent with how `gap_ratio` is computed (against per-country requirements). Equal-split and population-weighted are weaker because they ignore the plan's own structure.
+Why this cascade order: plans are negotiated bottom-up with per-country requirements that reflect humanitarian need, so where a `destPlan` is attached and per-country requirements are documented, `requirements_weighted` is the most defensible split. In practice this is rare — profiling of FTS incoming flows (`docs/notes/data_profiling.md`) finds that 99% of multi-country flows carry no `destPlan`, so the de facto handler for multi-country attribution is `population_weighted_fallback`. The cascade preserves the theoretically preferred method as the first applicable step while acknowledging that the operative method for ~30% of incoming dollars is population-weighted. Each `silver_fts_flows` row carries its `allocation_method`, and the Methodology screen reports the share of total flow value by method as transparency. Equal-split is rejected as a fallback because population, even where weak, uses more information.
 
 ## Sector-level analysis
 

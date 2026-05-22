@@ -76,7 +76,7 @@ The HAO knows that aggregate funding figures hide sector-specific gaps. They kno
 - **Crisis Explorer** — deep drilldown on one country, including subnational view, sector breakdown, funding history, ACLED hotspots
 - **Compare** — side-by-side analysis across 2–4 countries on specific dimensions
 - **Ask** — natural language queries for ad-hoc questions ("which countries have had >50% health funding gaps in 3 of the last 5 years?")
-- **Methodology** — the embedded AI/BI Dashboard for raw exploration of Gold tables
+- **Methodology** — custom React visualizations over Gold tables for raw exploration
 
 ### Key user stories
 
@@ -91,8 +91,8 @@ The HAO knows that aggregate funding figures hide sector-specific gaps. They kno
 - Crisis Explorer must support full subnational drill (admin1 choropleth, sector breakdown, multi-year trend, ACLED overlay) without overwhelming the default view. Progressive disclosure.
 - The deterministic decomposition of overlooked_score is a first-class element of Crisis Explorer — *"Sudan scores 0.84: gap_ratio contributes 0.31, severity_rate 0.24, chronic_index 0.19, sector_imbalance 0.10."*
 - Compare screen accepts 2–4 country selections and aligns metrics on a shared scale.
-- Ask screen surfaces the SQL Genie generates so the HAO can verify what was queried and reproduce the result. Embedded native Genie UI handles this.
-- Methodology screen exposes raw Gold tables via the embedded AI/BI Dashboard so the HAO can run their own analyses.
+- Ask screen surfaces the SQL Genie generates so the HAO can verify what was queried and reproduce the result. A custom React chat UI calling the Genie REST API handles this (Genie is consumed via API, not embedded; see `DECISIONS.md` 2026-05-21).
+- Methodology screen exposes raw Gold tables via custom React visualizations over the Databricks SQL Connector so the HAO can run their own analyses.
 
 ### What we don't optimize for
 

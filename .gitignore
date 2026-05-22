@@ -260,6 +260,7 @@ data/external/
 # ─── Secrets and local config ─────────────────────────────
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 secrets.yaml
