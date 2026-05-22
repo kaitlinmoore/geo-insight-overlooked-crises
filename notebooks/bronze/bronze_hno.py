@@ -47,6 +47,7 @@ for path in files:
     raw = (
         spark.read
         .option("header", "true")
+        .option("encoding", "UTF-8")
         .option("inferSchema", "false")   # all columns as string — see header notes
         .option("multiLine", "true")
         .csv(path)

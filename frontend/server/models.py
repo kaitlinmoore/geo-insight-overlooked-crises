@@ -130,6 +130,24 @@ class SubnationalArea(BaseModel):
     is_hotspot: bool
 
 
+# --- ACLED hotspots (grain: admin1 — silver_acled_severity @ admin1 monthly) -
+
+class AcledHotspot(BaseModel):
+    admin1_pcode: str
+    latitude: float
+    longitude: float
+    # cumulative events over the queried window, and the recent slice of them
+    event_count: int = Field(ge=0)
+    recent_event_count: int = Field(ge=0)
+    last_event_date: str  # ISO date
+
+
+class HotspotsResponse(BaseModel):
+    iso3: str
+    since: str
+    hotspots: list[AcledHotspot]
+
+
 # --- crisis detail (everything one Crisis Explorer view needs) -------------
 
 class CrisisDetail(BaseModel):

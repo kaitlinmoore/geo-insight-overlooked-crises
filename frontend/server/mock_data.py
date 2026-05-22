@@ -9,7 +9,13 @@ builders here with Databricks SQL Connector queries; response shapes do not chan
 
 from __future__ import annotations
 
+import hashlib
+import json
+from datetime import date, timedelta
+from pathlib import Path
+
 from models import (
+    AcledHotspot,
     AskExchange,
     CascadeMethod,
     CascadeResponse,
@@ -26,6 +32,7 @@ from models import (
     CrisisRanking,
     FundingFunnelStage,
     FundingTrendPoint,
+    HotspotsResponse,
     RankingsResponse,
     ScoreComponent,
     ScoreHistoryPoint,
@@ -34,6 +41,21 @@ from models import (
 )
 
 ANALYSIS_YEAR = 2026
+
+# Real admin1 P-codes / interior points, emitted by src/acquisition/extract_geojson.py.
+# Lets the subnational fixtures key to ACTUAL fieldmaps admin1 units (so the
+# choropleth join on admin1_pcode works) and places ACLED hotspots at real
+# coordinates. Absent until the extraction runs — fixtures degrade gracefully.
+_CENTROIDS_PATH = Path(__file__).resolve().parents[1] / "public" / "maps" / "admin1_centroids.json"
+try:
+    CENTROIDS: dict[str, list[dict]] = json.loads(_CENTROIDS_PATH.read_text(encoding="utf-8"))
+except FileNotFoundError:
+    CENTROIDS = {}
+
+
+def _seed(s: str) -> int:
+    """Stable cross-run integer from a string (Python's hash() is salted)."""
+    return int(hashlib.md5(s.encode()).hexdigest()[:8], 16)
 
 # Nominal composite weights (docs/methodology.md). media_attention is negative.
 WEIGHTS: dict[str, float] = {
@@ -201,6 +223,47 @@ def _sectors() -> list[SectorCoverage]:
     ]
 
 
+def _subnational_from_centroids(r: CrisisRanking, paid: float) -> list[SubnationalArea]:
+    """Build a SubnationalArea per real admin1 unit, keyed to fieldmaps P-codes.
+    Scores are FABRICATED but deterministic per P-code so the map and list agree."""
+    areas: list[SubnationalArea] = []
+    for a in CENTROIDS.get(r.iso3, []):
+        seed = _seed(a["admin1_pcode"])
+        areas.append(SubnationalArea(
+            pcode=a["admin1_pcode"],
+            admin1_name=a["admin1_name"],
+            overlooked_score=round(0.30 + (seed % 60) / 100, 3),  # 0.30..0.89
+            inform_severity=round(2.5 + (seed % 25) / 10, 1),     # 2.5..4.9
+            people_in_need=int(r.people_in_need * ((seed % 18) + 3) / 200),
+            inferred_funding_usd=paid * (((seed % 15) + 2) / 100),
+            is_hotspot=(seed % 4 == 0),
+        ))
+    areas.sort(key=lambda x: x.overlooked_score, reverse=True)
+    return areas
+
+
+def hotspots_response(iso3: str, since: str) -> HotspotsResponse:
+    """ACLED conflict hotspots for a country's admin1 units. FABRICATED counts at
+    real interior points; the real source is silver_acled_severity aggregated to
+    admin1 monthly (current to last month — not embargoed; see acquisition_acled.md)."""
+    iso3 = iso3.upper()
+    base = date(ANALYSIS_YEAR, 5, 1)  # severity path is current to last month
+    spots: list[AcledHotspot] = []
+    for a in CENTROIDS.get(iso3, []):
+        seed = _seed(a["admin1_pcode"] + "acled")
+        events = 15 + seed % 420
+        spots.append(AcledHotspot(
+            admin1_pcode=a["admin1_pcode"],
+            latitude=a["lat"],
+            longitude=a["lon"],
+            event_count=events,
+            recent_event_count=int(events * (0.08 + (seed % 40) / 200)),  # ~8..28%
+            last_event_date=(base - timedelta(days=seed % 120)).isoformat(),
+        ))
+    spots.sort(key=lambda s: s.event_count, reverse=True)
+    return HotspotsResponse(iso3=iso3, since=since, hotspots=spots[: max(4, len(spots) // 2)])
+
+
 def crisis_detail(iso3: str) -> CrisisDetail | None:
     r = _RANKING_BY_ISO.get(iso3.upper())
     if r is None:
@@ -226,7 +289,11 @@ def crisis_detail(iso3: str) -> CrisisDetail | None:
         ))
 
     if r.data_sparsity_flag:
+        # Honest gap: no machine-readable admin1 data -> ranked at country level.
         subnational: list[SubnationalArea] = []
+    elif r.iso3 in CENTROIDS:
+        # Real fieldmaps admin1 units -> the choropleth join on admin1_pcode works.
+        subnational = _subnational_from_centroids(r, paid)
     else:
         subnational = [
             SubnationalArea(pcode=f"{r.iso3}01", admin1_name="Region A", overlooked_score=0.81, inform_severity=4.5, people_in_need=int(r.people_in_need * 0.30), inferred_funding_usd=paid * 0.28, is_hotspot=True),

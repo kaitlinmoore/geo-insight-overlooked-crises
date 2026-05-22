@@ -41,6 +41,7 @@ print(f"CBPF allocation files ({len(files)}): {[f.rsplit('/', 1)[-1] for f in fi
 df = (
     spark.read
     .option("header", "true")
+    .option("encoding", "UTF-8")
     .option("inferSchema", "true")
     .csv(files)
 )

@@ -48,6 +48,7 @@ for level, path in level_files.items():
     raw = (
         spark.read
         .option("header", "true")
+        .option("encoding", "UTF-8")
         .option("inferSchema", "true")
         .csv(path)
     )

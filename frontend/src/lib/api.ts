@@ -14,6 +14,7 @@ import type {
   CompareResponse,
   CompositeWeightsResponse,
   CrisisDetail,
+  HotspotsResponse,
   RankingsResponse,
 } from "@/lib/types";
 
@@ -53,6 +54,12 @@ export function fetchRankings(params?: {
 
 export function fetchCrisis(iso3: string, year = 2026): Promise<CrisisDetail> {
   return getJson<CrisisDetail>(`${BASE}/crisis/${encodeURIComponent(iso3)}?year=${year}`);
+}
+
+export function fetchHotspots(iso3: string, since = "2026-01-01"): Promise<HotspotsResponse> {
+  return getJson<HotspotsResponse>(
+    `${BASE}/crisis/${encodeURIComponent(iso3)}/hotspots?since=${encodeURIComponent(since)}`
+  );
 }
 
 export function fetchCompare(countries: string[]): Promise<CompareResponse> {

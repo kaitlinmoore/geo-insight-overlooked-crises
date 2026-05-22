@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Placeholder } from "@/components/Placeholder";
+import { SubnationalMap } from "@/components/maps/SubnationalMap";
 import { NeglectBadge } from "@/components/NeglectBadge";
 import { RankCI } from "@/components/RankCI";
 import { QueryState } from "@/components/QueryState";
@@ -153,11 +154,7 @@ function CrisisBody({ detail }: { detail: CrisisDetail }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Placeholder
-            height="h-64"
-            label="[Subnational choropleth: admin1 overlooked_score]"
-            detail="MapLibre fill from gold_subnational_index + ACLED hotspot overlay — maps are a separate workstream"
-          />
+          <SubnationalMap iso3={r.iso3} subnational={detail.subnational} />
           {detail.subnational.length > 0 ? (
             <ul className="space-y-1 self-center text-sm">
               {detail.subnational.map((a) => (

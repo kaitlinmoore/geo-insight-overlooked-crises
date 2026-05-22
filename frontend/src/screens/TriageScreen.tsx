@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Placeholder } from "@/components/Placeholder";
+import { TriageMap } from "@/components/maps/TriageMap";
 import { NeglectBadge } from "@/components/NeglectBadge";
 import { ChangeIndicator } from "@/components/ChangeIndicator";
 import { RankCI } from "@/components/RankCI";
@@ -122,11 +122,7 @@ function TriageBody({
             <CardTitle className="text-sm">Global overview</CardTitle>
           </CardHeader>
           <CardContent>
-            <Placeholder
-              height="h-[420px]"
-              label="[Global choropleth map]"
-              detail="admin0 overlooked_score percentile · MapLibre + react-map-gl · maps are a separate workstream (GeoJSON from fieldmaps GeoParquet)"
-            />
+            <TriageMap rankings={data} />
           </CardContent>
         </Card>
         <Card>

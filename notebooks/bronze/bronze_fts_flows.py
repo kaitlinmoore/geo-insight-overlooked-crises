@@ -49,6 +49,7 @@ print(f"FTS flow files: {[f.rsplit('/', 1)[-1] for f in flow_files]}")
 df = (
     spark.read
     .option("header", "true")
+    .option("encoding", "UTF-8")
     .option("inferSchema", "true")
     .option("multiLine", "true")
     .csv(flow_files)

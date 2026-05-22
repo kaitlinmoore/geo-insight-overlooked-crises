@@ -45,6 +45,7 @@ print(f"CBPF projects file: {source_file.rsplit('/', 1)[-1]}")
 df = (
     spark.read
     .option("header", "true")
+    .option("encoding", "UTF-8")
     .option("inferSchema", "true")
     .option("multiLine", "true")
     .csv(source_file)

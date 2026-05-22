@@ -33,6 +33,7 @@ ensure_target_schema()
 df = (
     spark.read
     .option("header", "true")
+    .option("encoding", "UTF-8")
     .option("inferSchema", "true")
     .option("multiLine", "true")
     .csv(source_path)

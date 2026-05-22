@@ -31,6 +31,7 @@ from models import (
     CompareResponse,
     CompositeWeightsResponse,
     CrisisDetail,
+    HotspotsResponse,
     RankingsResponse,
 )
 
@@ -81,6 +82,12 @@ def get_crisis(iso3: str, year: int = 2026) -> CrisisDetail:
 
         raise HTTPException(status_code=404, detail=f"No crisis data for '{iso3}'")
     return detail
+
+
+@app.get("/api/v1/crisis/{iso3}/hotspots", response_model=HotspotsResponse)
+def get_hotspots(iso3: str, since: str = "2026-01-01") -> HotspotsResponse:
+    """ACLED conflict hotspots (admin1 grain) for the subnational map overlay."""
+    return mock.hotspots_response(iso3=iso3, since=since)
 
 
 # --- Compare ----------------------------------------------------------------

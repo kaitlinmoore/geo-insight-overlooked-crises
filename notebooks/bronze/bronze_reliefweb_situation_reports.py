@@ -75,6 +75,7 @@ meta_path = f"{source_path}/reliefweb_metadata.csv"
 meta_df = (
     spark.read
     .option("header", "true")
+    .option("encoding", "UTF-8")
     .option("inferSchema", "true")
     .option("multiLine", "true")
     .csv(meta_path)
@@ -95,6 +96,7 @@ attn_path = f"{source_path}/reliefweb_media_attention.csv"
 attn_df = (
     spark.read
     .option("header", "true")
+    .option("encoding", "UTF-8")
     .option("inferSchema", "true")
     .csv(attn_path)
 )

@@ -39,6 +39,7 @@ print(f"CBPF contribution files ({len(files)}): {[f.rsplit('/', 1)[-1] for f in 
 df = (
     spark.read
     .option("header", "true")
+    .option("encoding", "UTF-8")
     .option("inferSchema", "true")
     .csv(files)
 )

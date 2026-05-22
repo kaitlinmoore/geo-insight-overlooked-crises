@@ -137,6 +137,26 @@ export interface SubnationalArea {
   is_hotspot: boolean;
 }
 
+// --- ACLED hotspots (grain: admin1 — silver_acled_severity @ admin1 monthly) -
+
+export interface AcledHotspot {
+  admin1_pcode: string;
+  latitude: number;
+  longitude: number;
+  /** cumulative events over the queried window */
+  event_count: number;
+  /** recent slice of event_count (drives circle color/recency) */
+  recent_event_count: number;
+  /** ISO date of the most recent event */
+  last_event_date: string;
+}
+
+export interface HotspotsResponse {
+  iso3: string;
+  since: string;
+  hotspots: AcledHotspot[];
+}
+
 // --- crisis detail ---------------------------------------------------------
 
 export interface CrisisDetail {
