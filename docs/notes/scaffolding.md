@@ -251,10 +251,6 @@ theme-token maps), `MOCK_RANKINGS` (10 countries), `getCrisisDetail(iso3)`,
   yield an empty subnational array (country-level only). That matches the
   "graceful degradation" language but is an interpretation — confirm the UI
   should show the flag + empty state rather than inferred admin1 rows.
-- **No `sample_command_center.png` in the repo.** The reference image named in
-  the prompt isn't present. I worked from the written "control center" register
-  (dark, dense, restrained cyan-teal primary, data color carries signal).
-
 None of these blocked the scaffold; they're contract questions for the
 integration session, not methodology improvisations.
 
