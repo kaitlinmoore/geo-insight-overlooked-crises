@@ -44,6 +44,8 @@ Resolution matters during Day 3 / Day 4 but isn't blocking initial progress.
 
 **CBPF Contributions within-file duplicates.** The combined Contributions files have 2,132 rows but only 1,843 unique `(Year, Donor)` pairs — 289 duplicates. Likely multiple line items per donor-year (pledge revisions, multi-installment payments, currency conversions). *Resolution path: Silver aggregation rule for `silver_cbpf_contributions` — sum `Paid`/`Pledged`/`Total` over `(Year, Donor)` keys, retain a count column for transparency. Low urgency — the CBPF Allocation View is the optional sixth screen.*
 
+**INFORM Severity snapshot-date source-of-truth.** The Bronze loader (`bronze_inform_severity.py`) parses `snapshot_date` from the filename, preferring the spelled-out month name where present. At least one file is known-misnamed (`20190304gcsidatabasebetaversionfebruary2020.xlsx` — date prefix from 2019, contents are Feb 2020). The `About` sheet inside each workbook carries the canonical release date. Bronze keeps rows verbatim; the date correction belongs in Silver. *Resolution path: `silver_inform_severity` reads the `About` sheet from each `_source_file` and overrides `snapshot_date` where the parsed value disagrees with the About-sheet release date. Flag any disagreements to `_quarantine`. Low priority — affects 1 known file out of 89; impact on `chronic_index` is bounded to one month-country pair in early 2020.*
+
 ## Methodological calibration items
 
 These are placeholder parameters that need empirical confirmation once real data flows through the pipeline.

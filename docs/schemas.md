@@ -118,9 +118,9 @@ Plan/appeal-level requirements vs funding by country.
 
 ## bronze_fts_cluster  ✅ profiled
 
-Sector/cluster-level requirements vs funding. **Two source files, two clusterings** — load both, tag with `_source_file`.
+Sector/cluster-level requirements vs funding — the **country-specific cluster** taxonomy (the raw, ~962-variant set of country-defined cluster names). Loaded by `notebooks/bronze/bronze_fts_cluster.py`. The harmonized global-cluster file is a sibling table, `bronze_fts_globalcluster` (below), not folded in here.
 
-- **Source**: `fts_requirements_funding_cluster_global.csv` (country-specific clusters) **and** `fts_requirements_funding_globalcluster_global.csv` (harmonized global clusters)
+- **Source**: `fts_requirements_funding_cluster_global.csv` (country-specific clusters; ~962 distinct cluster names)
 - **Grain**: country × plan × cluster × year. **PK**: (`countryCode`, `code`, `clusterCode`, `year`).
 
 | Column | Type | Nullable | Notes |
@@ -134,7 +134,27 @@ Sector/cluster-level requirements vs funding. **Two source files, two clustering
 | `funding` | float | yes (~89–92%) | Sector funding USD → `sector_funding_i`. |
 | `percentFunded` | float | yes (~67–70%) | OCHA % funded. |
 
-**Note**: the `cluster` file and `globalcluster` file differ in taxonomy; the `globalcluster` variant is preferred for cross-country sector comparison, the `cluster` variant for in-country fidelity. Keep both; Silver chooses per use.
+**Note**: the country-cluster file and the global-cluster file differ in taxonomy. Prefer `bronze_fts_globalcluster` (below) for cross-country sector comparison and this `bronze_fts_cluster` table for in-country fidelity. Keep both; Silver chooses per use.
+
+## bronze_fts_globalcluster  ✅ profiled
+
+Sector/cluster-level requirements vs funding — the **harmonized global cluster** (IASC) taxonomy (the normalized ~24-name rollup). Loaded by `notebooks/bronze/bronze_fts_globalcluster.py`. Schema columns are identical to `bronze_fts_cluster`; only the source file and cluster taxonomy differ.
+
+- **Source**: `fts_requirements_funding_globalcluster_global.csv` (harmonized global clusters; ~24 IASC cluster names)
+- **Grain**: country × plan × cluster × year. **PK**: (`countryCode`, `code`, `clusterCode`, `year`).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `countryCode` | string | no | ISO3. |
+| `id`, `name`, `code` | int/string | no | Plan identity (fully populated here, unlike `bronze_fts_plan`). |
+| `startDate`/`endDate`/`year` | date/int | no | Plan window. |
+| `clusterCode` | float | yes (~79–84%) | Cluster id. |
+| `cluster` | string | no | Cluster name (`Education`, `Health`, …). Feeds the sector crosswalk. |
+| `requirements` | float | yes (~76–78%) | Sector requirement USD → `sector_requirement_i`. |
+| `funding` | float | yes (~89–92%) | Sector funding USD → `sector_funding_i`. |
+| `percentFunded` | float | yes (~67–70%) | OCHA % funded. |
+
+**Note**: preferred input for cross-country sector decomposition (`gold_sector_coverage`) because the 24-name IASC taxonomy is comparable across countries, unlike the ~962-variant `bronze_fts_cluster`.
 
 ## bronze_fts_flows  ✅ profiled
 
@@ -230,16 +250,16 @@ Monthly INFORM Severity snapshots (ACAPS). The hardest Bronze source — each fi
 
 ## bronze_cod_population  ✅ profiled
 
-UN Common Operational Dataset population, long format by demographic.
+UN Common Operational Dataset population, long format by demographic — the **national (admin0) + admin1** levels (the denominators used at the global and admin1 ranking layers). Loaded by `notebooks/bronze/bronze_cod_population.py`. The admin2 deep-dive level is a sibling table, `bronze_cod_population_admin2` (below). admin3 is acquired but ETH-only and admin4 is essentially unusable (only 1 country); both are excluded from the v1 named scope and can be added later with the same loader pattern.
 
-- **Source**: `cod_population_admin{0,1,2,3,4}.csv` — five files, one per deepest admin level (each populates `ADM1..ADMn` columns up to its level).
+- **Source**: `cod_population_admin0.csv`, `cod_population_admin1.csv` — the two CMU-drop files (each populates `ADM1..ADMn` columns up to its level). `_admin_level` (0/1) is derived on load.
 - **Grain**: admin-unit × population_group × gender × age_range. **PK**: (deepest `ADMn_PCODE` or `ISO3` at admin0, `Population_group`).
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
 | `ISO3` | string | no | ISO3. |
 | `Country` | string | no | Name. |
-| `ADM1_PCODE`/`ADM1_NAME` … `ADM4_PCODE`/`ADM4_NAME` | string | level-dependent | P-code + name; populated up to the file's level, null below. |
+| `ADM1_PCODE`/`ADM1_NAME` | string | level-dependent | P-code + name; null on admin0 rows. |
 | `Population_group` | string | no | `T_TL` (total), `M_TL`, `F_TL`, age-band codes. |
 | `Gender` | string | no | `all` / `m` / `f`. |
 | `Age_range` | string | no | `all`, `0-4`, `5-9`, … |
@@ -249,6 +269,16 @@ UN Common Operational Dataset population, long format by demographic.
 | `Source` / `Contributor` | string | no | Provenance. |
 
 **Total-population row** = `Population_group='T_TL'` AND `Gender='all'` AND `Age_range='all'`. That single row per admin unit is what `severity_rate` and population-weighted allocation use.
+
+## bronze_cod_population_admin2  ✅ profiled
+
+UN COD population at **admin2** — the subnational deep-dive denominator. A distinct, more-complete source than the CMU-drop admin2 file: the `cod-ps-global` supplemental pull (see `docs/notes/acquisition_supplemental_cod.md`). Loaded by `notebooks/bronze/bronze_cod_population_admin2.py`.
+
+- **Source**: `cod_population_admin2.csv` (the `cod-ps-global` pull, 1,001,583 rows, 19 columns). `_admin_level` (2) is derived on load.
+- **Grain**: admin2-unit × population_group × gender × age_range. **PK**: (`ADM2_PCODE`, `Population_group`).
+- **Coverage**: long-format, age/sex disaggregated; 77 of 109 countries have admin2 population. Of the priority set, **YEM, MMR, NGA have zero admin2 population** → degrade to admin1 + `data_sparsity_flag` in Silver. `Reference_year` varies and some are stale (VEN = 2011); carried through for the data-freshness indicators. Schema columns match `bronze_cod_population` plus the full `ADM2_*`/`ADM3_*`/`ADM4_*` p-code+name set (populated to admin2). admin3 (`cod_population_admin3.csv`) is acquired but ETH-only and excluded from v1 named scope.
+
+**Total-population row** convention is identical to `bronze_cod_population` (`Population_group='T_TL'` AND `Gender='all'` AND `Age_range='all'`).
 
 ## bronze_cerf_allocations  ✅ profiled
 
@@ -549,7 +579,7 @@ The composite `overlooked_score` with uncertainty and classification.
 
 ## gold_sector_coverage  🟡 (country × year × sector)
 
-- **Sources**: `bronze_fts_cluster` (globalcluster variant), `silver_needs`, `silver_sector_crosswalk`.
+- **Sources**: `bronze_fts_globalcluster`, `silver_needs`, `silver_sector_crosswalk`.
 - **Grain**: country × year × sector. **PK**: (`iso3`, `year`, `sector`).
 - **Columns**: `iso3`, `year`, `sector` (harmonized), `requirement_usd`, `funding_usd`, `sector_gap` (double), `sector_pin` (bigint), `pin_share` (double), `is_flagged_gap` (bool: `sector_gap>0.7 AND pin_share≥0.10`).
 - **Transforms**: crosswalk HNO cluster ↔ FTS cluster ↔ CBPF; compute per-sector gap.
