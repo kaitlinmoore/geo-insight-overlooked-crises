@@ -216,3 +216,75 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ─── Databricks ───────────────────────────────────────────
+*.dbc                       # Databricks archive (binary export)
+.ipynb_checkpoints/         # Notebook autosaves
+# Note: we want to commit .databricks/commit_outputs if it appears —
+# that's project policy, not local state. Don't blanket-ignore .databricks/
+
+# ─── Data ─────────────────────────────────────────────────
+# Convention: no raw data in repo. These patterns are a safety net.
+staging/
+data/raw/
+data/databricks_data/
+data/interim/
+data/processed/
+data/external/
+*.csv
+*.tsv
+*.parquet
+*.feather
+*.xlsx
+*.xls
+*.shp
+*.shx
+*.dbf
+*.geojson
+*.gpkg
+*.kml
+*.gdb/
+
+# Allow data documentation and schemas
+!data/README.md
+!data/**/*.md
+!data/**/schema.json
+
+# ─── Esri / ArcGIS ────────────────────────────────────────
+*.lyr
+*.lyrx
+*.mxd
+*.aprx
+*.gdb.lock
+
+# ─── Secrets and local config ─────────────────────────────
+.env
+.env.*
+*.pem
+*.key
+secrets.yaml
+secrets.yml
+credentials.json
+service-account*.json
+
+# ─── Editors and IDEs ─────────────────────────────────────
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
+
+# ─── OS ───────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── MLflow local tracking ────────────────────────────────
+# (Databricks tracking lives in the workspace, not here)
+mlruns/
+
+# ─── Scratch (private to local; not for public repo) ──────
+.claude/scratch/
+scratch/
+notes/scratch/

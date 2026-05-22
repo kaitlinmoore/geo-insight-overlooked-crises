@@ -1,0 +1,301 @@
+# Decision Log
+
+Architectural and methodological decisions for this project. Append-only. Newest entries at the top.
+
+## Format
+
+```
+## YYYY-MM-DD — Short title
+
+**Decision:** What was decided.
+
+**Alternatives considered:** What was rejected and why.
+
+**Rationale:** Why this choice.
+
+**Revisit if:** Conditions under which this should be reconsidered.
+```
+
+---
+
+## 2026-05-21 — Genie and AI/BI Dashboards consumed via API, not embedded
+
+**Decision:** Databricks Apps cannot embed workspace assets (Genie spaces, AI/BI Dashboards) via iframe — confirmed through smoke testing during workspace setup. Replace the planned iframe-embedding pattern with API-based consumption:
+
+- **Ask screen**: Genie REST API (`/api/2.0/genie/spaces/{id}/...`) called from the FastAPI backend; responses rendered in a custom React chat UI showing the question, the SQL Genie generated, the result set, and the natural-language answer.
+- **Methodology screen**: custom React visualizations against Gold tables via the Databricks SQL Connector. Recharts or D3 handles rendering. Data lineage callouts ("this chart reads from `geo_insight.gold.gold_forgotten_crisis_index`, last updated X") replace what AI/BI's auto-rendering would have provided.
+- **CBPF Allocation View (if built)**: same pattern as Methodology — custom React over the SQL Connector.
+
+Genie spaces are still configured in the workspace (instructions, joins, sample queries) and called via API; we don't show Genie's native UI but the agent still benefits from the Genie space's curated data context. The supervisor agent architecture is unchanged.
+
+**Alternatives considered:**
+
+- *Continue with iframe embedding*: rejected because the Databricks security model blocks this pattern entirely for workspace assets inside Databricks Apps. Not a configuration issue we could work around within the time budget.
+- *Link out to dashboards in a new tab*: rejected because it breaks the unified product experience. The deck framing emphasizes a "world-class, not hackathon" feel; bouncing the user to a separate workspace dashboard tab undercuts that.
+- *Skip Genie and AI/BI entirely*: rejected because the Databricks platform showcase narrative still wants both visible in the architecture. We get them as backend services rather than UI components.
+
+**Rationale:** What initially read as a setback may be the better architecture on net:
+
+1. **Visual consistency across all screens.** One coherent React design language across Triage / Crisis Explorer / Compare / Ask / Methodology beats a mix of embedded native UIs and custom components. This matters disproportionately for the "world-class, not hackathon" framing.
+2. **No iframe auth / CORS / mobile fragility** to manage.
+3. **SQL transparency is preserved.** The Genie-generated SQL is rendered in our own code-block component — the "no hallucination, traceable answers" deck story is intact, we just render the evidence ourselves.
+4. **Cleaner portfolio artifact.** A self-contained React app deployable anywhere is a stronger artifact than one with iframe dependencies on a specific workspace.
+5. **Better mobile responsiveness.** Embedded iframes were going to be brittle on mobile regardless.
+
+Time cost: ~6-12 additional hours of frontend work (custom chat UI for Ask, custom visualizations for Methodology, optional CBPF View). Partially offset by removing the iframe-embedding work and the 30-minute embed-verification spike originally on the Day 3 morning checklist.
+
+**Revisit if:** Databricks releases an embedding pattern that works for Databricks Apps within the hackathon timeframe (unlikely), OR the time cost of the custom UI work exceeds ~12 hours and threatens the must-have shipping list — at which point we'd cut scope from the affected screens (e.g., fewer Methodology visualizations) rather than reverting the architectural choice.
+
+---
+
+## 2026-05-21 — GeoAI as a substantial differentiator (Configuration A modified)
+
+**Decision:** Treat geographic intelligence as a first-class differentiator in service of the overlooked-crises ranking. Subnational analysis becomes the default where data supports it (admin1 globally, admin2 for deep dives). ACLED feeds spatial-temporal hotspot detection. Geographic isolation is a need-multiplier signal. A cross-border / regional pattern view surfaces dynamics that country-level rankings hide. Information architecture is map-forward, with the Triage hero as a global map. Geography is positioned as one of five differentiators, not as the project's sole frame.
+
+**Alternatives considered:**
+- *Tier 1 — visual GIS only (map in Crisis Explorer as side panel)*: rejected because it doesn't earn the project's name and underweights the user's distinctive capability.
+- *Tier 3 — spatial intelligence as the project's sole frame*: rejected because it risks distorting the brief's central question (mismatch and ranking) into a spatial-analysis tool, and because 4 days is not enough to deliver Tier 3 ambition without sacrificing ranking quality.
+
+**Rationale:** Mary Keller's framing of overlooked explicitly includes "where they are located" as a dimension. GeoAI is a capability the user has institutional advantage in (Heinz GIS background, Dr. Kurland mentorship, Esri access) and that few other teams can credibly deliver in this timeframe. Tier 2 surfaces GIS as a distinguishing differentiator while keeping the ranking engine as the unmistakable center of the submission.
+
+**Revisit if:** Subnational data coverage proves too sparse to support the default-subnational architecture across the demo crises, or if spatial agent tools don't land in time for Day 4 morning.
+
+---
+
+## 2026-05-21 — Knowledge Assistant deferred to Day 4 stretch goal
+
+**Decision:** Vector Search endpoint provisioning happens immediately to surface permission / quota issues early. Knowledge Assistant configuration and ReliefWeb document indexing are deferred to Day 4 afternoon as a stretch goal. Architectural choices made in v1 (supervisor pattern from the start, ReliefWeb documents acquired into Bronze regardless, Crisis Explorer narrative panel designed as an optional add-in) keep the door open for late addition without forcing a rewrite.
+
+**Alternatives considered:**
+- *Build KA into v1 critical path*: rejected because the substrate (supervisor + Genie + UC Functions) covers the agentic story without it, and the time cost (~6-8 hours) competes with higher-differentiation GeoAI work.
+- *Drop KA entirely, including document acquisition*: rejected because the user wants to retain optionality and may incorporate post-deadline; the ~2-hour acquisition cost is low insurance.
+
+**Rationale:** KA is valuable but not the project's distinctive capability. Other teams can replicate the KA pattern from the Day 2 presentation; few can credibly attempt the spatial intelligence work. Deferring KA with the door held open is the right risk-reward tradeoff.
+
+**Revisit if:** Day 4 afternoon arrives with substantial schedule slack AND all must-haves are green AND the ReliefWeb corpus quality looks sufficient.
+
+---
+
+## 2026-05-21 — Use-case-led pitch with five accessible differentiators
+
+**Decision:** The deck's anchoring claim is *"A command center for identifying the world's most overlooked crises,"* targeted at humanitarian coordinators and donor advisors as the primary audience. Five differentiators organize the rest of the deck: overlooked-vs-underfunded (negative weight on media attention), chronic-vs-acute (multi-year classification), sector-aware (sub-country granularity), geography matters (subnational + spatial intelligence), and explainable (deterministic decomposition + LLM explanation + uncertainty surfacing). UFE precision becomes a supporting verification beat on the methodology slide, not the deck headline.
+
+**Alternatives considered:**
+- *UFE-precision-led narrative*: rejected because committing the deck headline to a precision number not measurable until late in the build creates psychological weight during the build, may underperform expectations, and is sterile storytelling for the UN OCHA audience.
+- *Architecture-led pitch*: rejected because the primary audience is UN leadership, not Databricks engineering judges. Architecture is appendix material.
+- *Methodology-led pitch*: rejected because it competes with DataNation's prior work on the same axis without obvious differentiation.
+
+**Rationale:** The primary audience is UN OCHA leadership, who care first about workflow fit and decision support, second about technical depth. Use-case-led framing speaks to them first. Five differentiators are accessible because each is stated in operational language and operationalizes something Mary Keller named in her Day 1 framing. UFE precision can be elevated to the headline if the number is strong by Day 4 morning, but the pitch does not depend on it.
+
+**Revisit if:** Mary's review of the demo recording suggests a different framing lands harder, OR if UFE precision is so strong (≥85%) that it deserves the headline slot.
+
+---
+
+## 2026-05-21 — Multi-country flow allocation cascade
+
+**Decision:** FTS flows tagged to multi-country regional plans are allocated to specific countries via a four-step cascade:
+
+1. Flow has a country tag → use the tag (method: `country_tagged`)
+2. Multi-country plan with per-country requirements documented → allocate proportional to each country's HRP requirement within the plan (method: `requirements_weighted`)
+3. Multi-country plan without per-country requirements but with country list known → allocate proportional to country population from COD-PS (method: `population_weighted_fallback`)
+4. No country tag and no country list → exclude from country-level analysis, report in aggregate (method: `regional_unattributed`)
+
+All splits happen in Silver. Each split row preserves `allocation_method`, `allocation_weight`, and `source_flow_id` for lineage. The methodology slide reports the fraction of total flow value falling into each method.
+
+**Alternatives considered:**
+- *Equal split as fallback*: rejected because population is a real (though weak) signal where requirements are unavailable, and population-weighted uses more information than equal split while remaining transparently flagged.
+- *Population-weighted as primary*: rejected because per-country requirements within a plan are negotiated specifically to reflect humanitarian need; population alone systematically distorts allocation for refugee-hosting countries and concentrated-need regions.
+
+**Rationale:** Requirements-weighted is self-consistent with our `gap_ratio` denominator (we compare funding-received to requirements-needed; allocating regional flows by per-country requirements respects that negotiation). The cascade preserves transparency by flagging less-defensible methods rather than smuggling them in. DataNation did not address multi-country flow attribution, so this is a documented methodological differentiator.
+
+**Revisit if:** The methodology audit reveals that the `population_weighted_fallback` method covers more than ~5% of total flow value, suggesting a systemic data gap worth surfacing more prominently.
+
+---
+
+## 2026-05-21 — Bonus task: structural vs acute neglect at medium tier
+
+**Decision:** Implement the bonus task at "medium" scope. Build a `neglect_class` column on `gold_funding_trend` with values `chronic_neglect`, `acute_deterioration`, `improving`, `well_funded`, and `chronic_no_plan` (for countries without HRPs that nonetheless show persistent unmet need). Default chronic threshold is N=3 consecutive years; documented as configurable. Add a ranking-lens toggle in the UI that switches between "ranked by current mismatch" and "ranked by structural neglect."
+
+A simultaneous-comparison visualization (quadrant chart) is a Day 4 stretch goal if time allows.
+
+**Alternatives considered:**
+- *Skip the bonus task entirely*: rejected because the bonus question explicitly maps to Mary's framing of donor fatigue and multi-year patterns; skipping leaves a documented hackathon ask on the table when "originality of the approach" is one of the five jury criteria.
+- *Minimum tier — classification column only, no UI exposure*: rejected because building the classification without surfacing it does not actually answer the PDF's bonus question ("how should ranking change").
+- *Maximum tier — dedicated simultaneous-comparison visualization as a core feature*: rejected because the additional visualization competes with GeoAI and frontend polish; preserved as a stretch goal.
+
+**Rationale:** Medium tier delivers a substantive answer to the bonus question at low marginal cost — the multi-year FTS aggregation needed for `chronic_index` already exists, classification logic adds minimal compute, and the UI toggle is small. The structural / acute distinction surfaces separately from the composite score, consistent with the Day 1 synthesis principle that chronic and acute are distinct signals, not blended.
+
+**Revisit if:** Composite weight calibration reveals chronic and acute signals interact in ways that warrant a single combined ranking, OR if the no-HRP edge case is more common than expected and requires methodology refinement.
+
+---
+
+## 2026-05-21 — Three-layer validation strategy
+
+**Decision:** Validate the ranking using three independent layers:
+
+1. **UFE selections as labeled ground truth.** CERF Underfunded Emergencies selections back to 2009 as binary labels (country × year × round). Hold out recent rounds (2024-2025 as the floor; broader train/test split as the stretch). Report precision and recall on the held-out window.
+2. **Multi-source comparators.** Cross-check top-N against the DG ECHO Forgotten Crises Assessment annual list and the Norwegian Refugee Council Most Neglected Displacement Crises list. Report overlap analysis.
+3. **Internal robustness.** Bootstrap confidence intervals on rankings by resampling weight schemes. Carry a stability flag for countries staying in top-N across many configurations.
+
+CIRV-free features are used in the model to preserve validation cleanliness (UFE selections are informed by CIRV; using CIRV as a feature would artificially inflate agreement).
+
+**Alternatives considered:**
+- *Internal robustness only (no external validation)*: rejected because that is essentially what DataNation did, insufficient for the "defensibility" jury criterion.
+- *UFE precision as the deck headline*: see the use-case-led pitch decision — UFE precision is supporting evidence, not headline.
+
+**Rationale:** UFE selections are OCHA's institutional answer to "which crises are most underfunded" — the strongest possible validation target. ECHO FCA and NRC are mature comparators that the PDF's "supplement with public sources where it improves analysis" guidance explicitly invites. Bootstrap CIs match DataNation's robustness move while extending to held-out-label validation, which is methodologically stronger.
+
+**Revisit if:** UFE data acquisition fails or proves messier than expected (fallback: narrow-window 2024-2025 only validation). If a precision result is exceptionally strong (≥85%), promote to pitch headline.
+
+---
+
+## 2026-05-21 — Independent severity signal: ACLED primary, IPC stretch
+
+**Decision:** ACLED conflict event data is the primary independent severity signal added to the pipeline. It serves two purposes: methodological hygiene (breaking the OCHA-only circularity in the severity dimension) and substrate for the GeoAI spatial-temporal hotspot detection work. IPC food security phases are a Day 4 stretch addition if time allows.
+
+**Alternatives considered:**
+- *IPC first*: rejected because while IPC is highly relevant for hunger-driven crises, ACLED has broader applicability across all crisis types and feeds the spatial intelligence work as well.
+- *Both equally weighted in v1*: rejected because doing both well in the timeframe risks doing neither well.
+- *Neither — stay OCHA-only*: rejected because the PDF explicitly invites ACLED / IPC / UNHCR as enrichment, and methodological circularity is a known weakness if all severity signals come from OCHA itself.
+
+**Rationale:** ACLED is geocoded event data from an independent academic project; it directly supports both ranking enrichment and the GeoAI capabilities. Its API is well-behaved. IPC is added later because the project can stand without it; ACLED cannot be cleanly replaced.
+
+**Revisit if:** ACLED API access proves difficult or rate-limited beyond what the build window absorbs; if Day 4 morning has unexpected slack, IPC integration is the next stretch task.
+
+---
+
+## 2026-05-21 — CIRV deferred for v1
+
+**Decision:** Do not ingest or recompute the CERF Compound Index of Risk and Vulnerability (CIRV) for v1. UFE selections alone serve as labeled ground truth for the validation layer. The composite ranking uses CIRV-free features only.
+
+**Alternatives considered:**
+- *Recompute CIRV from primary inputs* (INFORM Risk + INFORM Severity + food insecurity + conflict + early warning): rejected because the engineering lift (~6-10 hours) reproduces published OCHA work and competes with higher-differentiation work.
+- *Ingest published CIRV scores from CERF methodology notes (PDFs)*: rejected because the parsing effort isn't justified by the marginal benefit in v1; CIRV's primary value would be as a baseline comparator next to our model's UFE precision, and that comparison can be added post-deadline if interesting.
+
+**Rationale:** CIRV is OCHA's own composite index informing UFE selections. Including it as a feature would inflate validation agreement artificially (circularity); excluding it preserves clean validation. The architectural cost of skipping is low (CIRV would have been a single Bronze table plus a Silver feature).
+
+**Revisit if:** Time permits post-deadline, OR if reviewers ask for a baseline comparison to OCHA's own institutional index.
+
+---
+
+## 2026-05-21 — Alert subscriptions deferred to roadmap
+
+**Decision:** Do not build email / Slack alert subscriptions in v1. Three architectural choices are made now to keep the eventual addition cheap:
+
+1. Gold tables carry a temporal dimension (not collapsed to a single "current" snapshot)
+2. A `get_ranking_delta(country, from_period, to_period)` UC Function is built in v1 and exposed as an agent tool
+3. Change indicators on the Triage screen (↑5 positions, NEW to top 10, ↓3) are computed from the same substrate alerts would consume
+
+Methodology documentation explicitly notes alerts as a planned extension with the specific additional components required (scheduled Workflow, subscription store, delivery integration).
+
+**Alternatives considered:**
+- *Build alerts in v1*: rejected because the infrastructure required (scheduled job runner, subscription store, SMTP / Slack integration, last-notified state) is large compared to the deck's actual need (credible roadmap mention).
+- *Claim alerts as roadmap without architectural support*: rejected because that is marketing, not engineering. The point of preserving the door architecturally is that the claim is credible.
+
+**Rationale:** The synthesis identified opt-in alerts as a meaningful extension beyond HDX Signals. Building the full feature is out of scope for the time available; the three design choices listed make the eventual addition a contained extension. The change indicators on Triage serve as visible proof that the temporal substrate exists.
+
+**Revisit if:** Post-deadline iteration moves to building user-facing alerts, OR if user feedback on the change indicators suggests they want subscription functionality.
+
+---
+
+## 2026-05-21 — AI/BI Dashboards embedded inside React (not parallel deliverable)
+
+**Decision:** Use Databricks AI/BI Dashboards as embedded iframes inside the React Databricks App where they add value (Methodology screen primarily; optionally the CBPF Allocation View). Do not build a parallel AI/BI Dashboards-only surface. Custom React remains the primary frontend; embedded AI/BI Dashboards and embedded Genie are leveraged inside React where each is natively powerful.
+
+**Alternatives considered:**
+- *Build a parallel AI/BI Dashboards deliverable*: rejected because it doubles the surface count to maintain and judges aren't looking for two parallel products.
+- *Skip AI/BI Dashboards entirely*: rejected because embedding selectively lets us showcase more of the Databricks platform with low marginal cost while keeping React polish on the front-of-house screens.
+
+**Rationale:** Embedded Genie handles the Ask screen natively (transparent SQL generation, built-in feedback mechanisms). Embedded AI/BI Dashboards handle the Methodology screen naturally (data lineage exploration, auto-rendered visualizations of Gold tables). This pattern reduces React build work AND adds platform coverage. A 30-minute iframe auth / CORS spike on Day 3 morning verifies the embedding pattern works.
+
+**Revisit if:** Iframe auth fails for embedded Genie or AI/BI (fallback: SDK-based integration with custom React chat UI, ~4-6 hours of additional work). *(Note: superseded 2026-05-21 by the Genie/AI-BI-via-API decision above. Embedding turned out not to be supported for Databricks Apps; the API-based approach replaces it.)*
+
+---
+
+## 2026-05-21 — Persona reconciliation: HC primary, HAO + PFM secondary, Donor Advisor tertiary
+
+**Decision:** Update the persona structure from the original "HC primary, PFM + Donor Advisor secondary" to align with the PDF's reference structure and the IA's natural mapping:
+
+- **Primary:** Humanitarian Coordinator (HC) — drives the default Triage UX, ~5-minute sessions, top-line decisions
+- **Secondary:** Humanitarian Affairs Officer (HAO, the analyst archetype) — primary user of Crisis Explorer, Compare, Ask. ~1-hour deep-dive sessions.
+- **Secondary:** Pooled Funds Manager (PFM) — primary user of the optional CBPF Allocation View. ~15-30 minute allocation sessions.
+- **Tertiary** (should not be hostile to, but not optimized for): Donor Advisor — external to OCHA, uses similar analysis with different incentives and information context.
+
+User stories in `docs/personas.md` updated to reflect the cascade.
+
+**Alternatives considered:**
+- *Keep original structure (HC + PFM + Donor Advisor)*: rejected because the PDF's reference section explicitly names HAO with a job link, and the IA (Triage / Crisis Explorer / Compare / Ask / Methodology / CBPF) maps more cleanly to HC + HAO + PFM.
+- *Drop Donor Advisor entirely*: rejected because the PDF mentions donor advisors explicitly in the audience framing, and the tool's outputs should remain usable by them.
+
+**Rationale:** HAO replaces Donor Advisor as a secondary persona because the analyst archetype is who actually drives the ~1-hour deep-dive sessions on Crisis Explorer; the PDF's job link to HAO confirms this is OCHA's recognized role. Donor Advisor remains a tertiary persona — usable but not optimized for.
+
+**Revisit if:** Mary's feedback on the demo indicates the persona framing isn't accurate to OCHA workflow, OR if a donor advisor user test reveals significant usability gaps.
+
+---
+
+## 2026-05-19 — Frontend: React + Tailwind + shadcn/ui on Databricks Apps
+
+**Decision:** Build the primary frontend in React + Tailwind + shadcn/ui, hosted via Databricks Apps with a FastAPI backend serving the React build. Streamlit was considered and rejected as the primary surface.
+
+**Alternatives considered:**
+- *Streamlit on Databricks Apps*: rejected because Streamlit's default visual identity is recognizable as "hackathon" and the polish ceiling matters for the demo recording.
+- *External Vercel deployment of Next.js*: deferred as a possible portfolio-only public preview if time permits, but not the primary submission surface.
+- *Next.js + shadcn external with Databricks SQL Connector*: rejected for the hackathon timeframe because integration overhead (auth, environment, CORS, deployment) consumes design time.
+
+**Rationale:** Polish matters per the "world-class" framing emphasized in the Day 2 working session. React + Tailwind + shadcn provides a higher polish ceiling than Streamlit while keeping the frontend hostable on the same workspace as the data and agent layer. Embedded Genie and embedded AI/BI Dashboards inside the React app provide Databricks platform showcase without sacrificing design control. *(Note: the embedded-inside-React part was superseded 2026-05-21 by the API-based approach.)*
+
+**Revisit if:** Iframe embedding for Genie or AI/BI Dashboards proves unworkable, forcing additional SDK-based integration work that exceeds the time budget. *(Note: confirmed unworkable 2026-05-21; see the Genie/AI-BI-via-API entry above for the replacement approach.)*
+
+---
+
+## 2026-05-19 — Multi-agent supervisor architecture
+
+**Decision:** Build a supervisor agent (Mosaic AI ChatAgent pattern) that routes between specialist agents:
+
+- Genie spaces (text-to-SQL over Gold tables, configured by topic: Severity & Needs, Funding & Coverage, Mismatch & Ranking, Geospatial)
+- UC Functions (the seven Gold-table-backed analytical tools plus spatial tools)
+- (Day 4 stretch) Knowledge Assistant for unstructured ReliefWeb situation reports
+
+Even with only Genie and UC Functions as specialists in v1, the supervisor pattern is the architectural choice from the start. This matches the Day 2 reference architecture and keeps KA addition cheap if Day 4 has slack.
+
+**Alternatives considered:**
+- *Single chat agent with all tools registered directly*: rejected because it loses the multi-agent narrative for the deck and makes adding KA later a rewrite.
+- *Direct Genie iframe with no supervisor* (just for the Ask screen): considered, but the supervisor is needed for cross-cutting queries that combine structured and unstructured reasoning, and is the foundation for the KA addition path.
+
+**Rationale:** The supervisor architecture is the Day 2 reference architecture and is judge-flattering for the technical evaluation. It future-proofs the system for KA addition without rework. The cost of building a supervisor for just two specialist types in v1 is small (1-2 hours setup) compared to the architectural debt of a flat agent design that would need to be rewritten if KA lands as a stretch goal.
+
+**Revisit if:** Routing logic proves too brittle on the v1 test set (fallback: simplify to direct tool invocation with the supervisor logic encoded as routing examples).
+
+---
+
+## 2026-05-18 — Bootstrap documentation structure
+
+**Decision:** Adopt a tiered documentation structure with `STATE.md` and `DECISIONS.md` as Tier 1 (update every session), `claude.md` and `docs/methodology.md`, `docs/data-catalog.md`, and `docs/open-questions.md` as Tier 2 (update when relevant), and `docs/glossary.md`, `docs/personas.md`, `docs/prior-art.md`, `SUBMISSION.md` as Tier 3 (mostly write-once).
+
+**Alternatives considered:** Wiki-style structure (rejected — adds tooling overhead), single design document (rejected — too coarse for separate update cadences), no documentation discipline (rejected — defeats the multi-surface workflow).
+
+**Rationale:** Each surface (Claude.ai, Claude Code, the human developer) needs a single source of truth. Tiered documents with clear update protocols minimize drift across surfaces and sessions, especially since Claude Code sessions are stateless.
+
+**Revisit if:** Documentation overhead becomes a friction point relative to the value it provides.
+
+---
+
+## 2026-05-18 — Primary persona: Humanitarian Coordinator (default)
+
+**Decision:** The Humanitarian Coordinator is the primary persona for the system. UI, output formats, and user stories will be optimized for this role first.
+
+**Alternatives considered:** Pooled Funds Manager (narrower workflow, more transactional), Donor Advisor (external to OCHA, different incentives and information environment).
+
+**Rationale:** The Humanitarian Coordinator role most closely matches the vantage point of the mentor (Mary Keller, Information Management Officer at OCHA) and represents the broadest practical analytical workflow. Coordinator-level outputs can typically be adapted for the other two personas more readily than the reverse.
+
+**Revisit if:** Mentor feedback indicates a different persona is more impactful, or a clear differentiation opportunity emerges for another role. *(Note: refined 2026-05-21 to add HAO as a second secondary persona; see entry above.)*
+
+---
+
+## 2026-05-18 — Slide deck in PowerPoint
+
+**Decision:** Build the final deliverable deck in PowerPoint. Working copy lives in Google Drive; final PDF exports into the repo on submission.
+
+**Alternatives considered:** Marp (markdown-to-slides, code-versioned), Reveal.js (programmable HTML), Gamma or Pitch (AI-assisted generation).
+
+**Rationale:** PowerPoint aligns with UN OCHA institutional culture, handles mixed media (charts from notebooks, map exports, screenshots) cleanly, and has strong presenter-view support for the demo recording. Code-based slide tools would optimize for reproducibility at the cost of visual flexibility, which the deliverable rewards more.
