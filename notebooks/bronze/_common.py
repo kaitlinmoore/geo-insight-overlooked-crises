@@ -38,13 +38,13 @@ def add_audit_columns(df, source_file=None):
       2. left as-is if the caller already populated `_source_file`
          (e.g. the INFORM loader, which reads xlsx via pandas and sets it
          per-file before converting to Spark), else
-      3. `input_file_name()` — the per-row origin for Spark-native multi-file
+      3. `_metadata.file_path` — the per-row origin for Spark-native multi-file
          globs (CBPF, FTS flows, COD, fieldmaps, ReliefWeb docs).
 
     The documented signature is `add_audit_columns(df, source_file: str)`;
     the `None` default extends it to cover the multi-file cases above.
     """
-    df = df.withColumn("_ingested_at", F.current_timestamp())
+    df = df.withColumn("_source_file", F.col("_metadata.file_path"))
     if source_file is not None:
         df = df.withColumn("_source_file", F.lit(source_file))
     elif "_source_file" not in df.columns:
@@ -104,12 +104,17 @@ def parse_year_from_filename(path, patterns):
 
 # COMMAND ----------
 
-def write_bronze_delta(df, table, dry_run, merge_schema=False):
+def write_bronze_delta(df, table, dry_run, merge_schema=False, column_mapping=False):
     """Single append-mode write entry point for every Bronze loader.
 
     - Append mode (Bronze is append-only).
     - `merge_schema=True` only where the source genuinely evolves
       (HNO across years; INFORM GCSI vs INFORM-Severity column sets).
+    - `column_mapping=True` for sources whose verbatim column names contain
+      characters Delta rejects by default (spaces in HNO's `Country ISO3` /
+      `Admin 1 PCode` / `In Need`; CBPF Contributions' `Donor type`). Applied
+      via Delta table properties at creation time; persists for subsequent
+      appends. Preserves the verbatim-Bronze convention rather than renaming.
     - `dry_run=True` short-circuits: counts and reports, writes nothing.
 
     Returns the row count (rows that were / would be appended).
@@ -118,14 +123,25 @@ def write_bronze_delta(df, table, dry_run, merge_schema=False):
     if dry_run:
         print(
             f"[DRY RUN] would append {n:,} rows to `{table}` "
-            f"(merge_schema={merge_schema}); not writing."
+            f"(merge_schema={merge_schema}, column_mapping={column_mapping}); "
+            f"not writing."
         )
         return n
     writer = df.write.format("delta").mode("append")
+    if column_mapping:
+        writer = (
+            writer
+            .option("delta.columnMapping.mode", "name")
+            .option("delta.minReaderVersion", "2")
+            .option("delta.minWriterVersion", "5")
+        )
     if merge_schema:
         writer = writer.option("mergeSchema", "true")
     writer.saveAsTable(table)
-    print(f"[WRITE] appended {n:,} rows to `{table}` (merge_schema={merge_schema}).")
+    print(
+        f"[WRITE] appended {n:,} rows to `{table}` "
+        f"(merge_schema={merge_schema}, column_mapping={column_mapping})."
+    )
     return n
 
 

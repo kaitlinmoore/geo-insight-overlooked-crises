@@ -34,7 +34,17 @@ ensure_target_schema()
 
 # COMMAND ----------
 
-df = spark.read.parquet(source_path)
+import pandas as pd
+
+# Serverless's Spark parquet reader rejects INT64 TIMESTAMP(NANOS).
+# Read via pandas (which handles nanos), truncate to micros, hand to Spark.
+pdf = pd.read_parquet(source_path)
+
+for col in pdf.columns:
+    if pd.api.types.is_datetime64_ns_dtype(pdf[col]):
+        pdf[col] = pdf[col].astype('datetime64[us]')
+
+df = spark.createDataFrame(pdf)
 df = add_audit_columns(df, source_file=source_path)
 rows_read = df.count()
 

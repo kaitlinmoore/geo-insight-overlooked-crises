@@ -1,4 +1,8 @@
 # Databricks notebook source
+# MAGIC %pip install openpyxl
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC # Bronze loader: `bronze_inform_severity`
 # MAGIC
@@ -137,11 +141,42 @@ pdf_all = pd.concat(frames, ignore_index=True, sort=False) if frames else pd.Dat
 pdf_all = pdf_all.where(pdf_all.notna(), None)
 print(f"combined pandas rows: {len(pdf_all):,}; columns: {len(pdf_all.columns)}")
 
+# Dedupe column names case-insensitively. pandas auto-disambiguates within a sheet,
+# but post-strip() collisions and GCSI-vs-INFORM case drift can produce duplicates
+# that Delta rejects on write. Preserve first occurrence verbatim; suffix later
+# duplicates with __dup{N} so no data is dropped.
+seen = {}
+new_cols = []
+dups_logged = []
+for c in pdf_all.columns:
+    key = c.lower()
+    if key in seen:
+        seen[key] += 1
+        renamed = f"{c}__dup{seen[key]}"
+        new_cols.append(renamed)
+        dups_logged.append((c, renamed))
+    else:
+        seen[key] = 1
+        new_cols.append(c)
+pdf_all.columns = new_cols
+if dups_logged:
+    print(f"[INFO] renamed {len(dups_logged)} case-insensitive duplicate column(s):")
+    for orig, renamed in dups_logged[:10]:
+        print(f"   {orig!r} -> {renamed!r}")
+    if len(dups_logged) > 10:
+        print(f"   ... and {len(dups_logged) - 10} more")
+print(f"final pdf_all columns ({len(pdf_all.columns)}): {pdf_all.columns.tolist()}")
+
 df = spark.createDataFrame(pdf_all)
-df = add_audit_columns(df, source_file=None)  # keeps the pandas-set _source_file
+print(f"df columns ({len(df.columns)}): {df.columns}")  # one-time diagnostic
+# `_source_file` is already populated per-row by read_sheet(); only _ingested_at is missing.
+df = df.withColumn("_ingested_at", F.current_timestamp())
+if "_source_file" not in df.columns:
+    # Defensive: pandas->Spark dropped it for some reason. Fall back to source dir literal.
+    df = df.withColumn("_source_file", F.lit(source_path))
 rows_read = df.count()
 
 # COMMAND ----------
 
-written = write_bronze_delta(df, TABLE, dry_run, merge_schema=True)
+written = write_bronze_delta(df, TABLE, dry_run, merge_schema=True, column_mapping=True)
 load_summary(df, rows_read, written, dry_run)

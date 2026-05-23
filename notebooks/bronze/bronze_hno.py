@@ -66,5 +66,14 @@ rows_read = df.count()
 
 # COMMAND ----------
 
-written = write_bronze_delta(df, TABLE, dry_run, merge_schema=True)
+written = write_bronze_delta(df, TABLE, dry_run, merge_schema=True, column_mapping=True)
 load_summary(df, rows_read, written, dry_run)
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC DESCRIBE TABLE geo_insight.bronze.bronze_hno;
+
+# COMMAND ----------
+
+

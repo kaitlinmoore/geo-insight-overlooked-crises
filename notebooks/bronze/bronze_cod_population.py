@@ -66,3 +66,9 @@ rows_read = df.count()
 
 written = write_bronze_delta(df, TABLE, dry_run, merge_schema=True)
 load_summary(df, rows_read, written, dry_run)
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC SELECT COUNT(*), MIN(_ingested_at), MAX(_ingested_at)
+# MAGIC    FROM geo_insight.bronze.bronze_cod_population;

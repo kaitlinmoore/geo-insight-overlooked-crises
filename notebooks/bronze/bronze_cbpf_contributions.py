@@ -48,5 +48,5 @@ rows_read = df.count()
 
 # COMMAND ----------
 
-written = write_bronze_delta(df, TABLE, dry_run, merge_schema=False)
+written = write_bronze_delta(df, TABLE, dry_run, merge_schema=False, column_mapping=True)
 load_summary(df, rows_read, written, dry_run)
