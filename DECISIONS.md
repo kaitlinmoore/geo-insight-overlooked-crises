@@ -18,6 +18,14 @@ Architectural and methodological decisions for this project. Append-only. Newest
 
 ---
 
+## 2026-05-22 — openpyxl via notebook-scoped %pip on serverless
+
+**Decision:** Databricks serverless ships pandas without `openpyxl`, so notebooks that read `.xlsx` inputs install it via notebook-scoped `%pip install openpyxl` at the top of the notebook. v1 workaround; not a cluster library or workspace-installed dependency.
+
+**Revisit if:** Serverless adds `openpyxl` to its baseline image, OR a workspace-installed library policy supersedes the per-notebook approach.
+
+---
+
 ## 2026-05-22 — UC Function design conventions
 
 **Decision:** Eleven Unity Catalog Functions in `geo_insight.agent.*` back the Mosaic AI supervisor's tool calls (see `notebooks/agent/register_uc_functions.py` and `notebooks/agent/README.md`). Three convention decisions:
