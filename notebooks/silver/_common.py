@@ -3,8 +3,8 @@
 # MAGIC # Silver shared helpers (`_common`)
 # MAGIC
 # MAGIC Cross-cutting constants and tiny utilities every Silver DLT notebook
-# MAGIC depends on. Imported via `%run ./_common` so the names resolve in the
-# MAGIC caller's notebook context (same `spark` / `dlt`).
+# MAGIC depends on. Imported via `from _common import *` (Lakeflow Declarative
+# MAGIC Pipelines does not honor `%run`; see `docs/notes/serverless_constraints.md`).
 # MAGIC
 # MAGIC **Read patterns (one convention, applied everywhere):**
 # MAGIC - **Bronze inputs** are *external* to this DLT pipeline (written by the

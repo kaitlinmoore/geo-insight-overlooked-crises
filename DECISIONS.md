@@ -18,6 +18,28 @@ Architectural and methodological decisions for this project. Append-only. Newest
 
 ---
 
+## 2026-05-22 — Databricks serverless constraints encountered during Bronze→Silver build
+
+**Decision:** Cluster four serverless/Lakeflow-specific workarounds adopted during the Bronze→Silver session into one entry, since they share a root cause (the v1 deployment target is Databricks serverless + Lakeflow Declarative Pipelines, which has a narrower feature surface than classic compute). One of the four (`openpyxl` via notebook-scoped `%pip`) was logged separately below on the same day and is referenced here for completeness rather than re-decided.
+
+1. **Lakeflow DP strips notebook magics except `%pip`.** `%run ./_common` is skipped at pipeline runtime, so shared helpers never load and the first reference to anything from `_common.py` raises `NameError`. Replaced with `from _common import *  # noqa: F403,F401` in every `notebooks/silver/silver_*.py`. Workspace Files co-located with the pipeline source are importable as modules — no `sys.path` work needed. Bronze loaders still use `%run` because they run as standalone notebook jobs, not as a Lakeflow pipeline. See `docs/notes/serverless_constraints.md`.
+
+2. **`input_file_name()` deprecated / unreliable on serverless; use `_metadata.file_path`.** The Bronze audit-column helper now resolves `_source_file` from `F.col("_metadata.file_path")` by default, with `F.input_file_name()` retained only as a last-resort fallback when neither an explicit `source_file` nor a pre-populated `_source_file` column is available. See `notebooks/bronze/_common.py:add_audit_columns`.
+
+3. **`openpyxl` not in the serverless baseline image.** Notebooks that read `.xlsx` install it via notebook-scoped `%pip install openpyxl` at the top of the notebook (e.g. `bronze_inform_severity`). Covered in detail in the separate `2026-05-22 — openpyxl via notebook-scoped %pip on serverless` entry below.
+
+4. **Delta `column_mapping` kwarg required for sources with spaces/special chars in column names.** Bronze is verbatim — we don't rename incoming columns — but Delta rejects spaces in column names by default. `write_bronze_delta(..., column_mapping=True)` flips on `delta.columnMapping.mode = "name"` (and the required reader/writer version bumps) so HNO (`Country ISO3`, `Admin 1 PCode`, `In Need`), CBPF Contributions (`Donor type`), and INFORM-Severity all land cleanly. See `notebooks/bronze/_common.py:write_bronze_delta`.
+
+**Alternatives considered:** (1) Sticking with `%run` and hoping Lakeflow adds magic support — rejected; not in their roadmap and the import works fine. (2) Renaming source columns at Bronze to dodge `column_mapping` — rejected; violates the verbatim-Bronze convention documented in `docs/schemas.md`. (3) Pre-installing `openpyxl` as a workspace library — deferred; needs admin coordination, and the notebook-scoped install is fine for v1.
+
+**Rationale:** v1 deploys on serverless. These four workarounds keep the existing Bronze/Silver design intact (verbatim columns, shared `_common` helpers, audit column contract) while accommodating the runtime's narrower feature surface. None of them affect methodology or downstream consumers.
+
+**Revisit if:** v1 moves to classic compute (then magics, `input_file_name()`, and stock `openpyxl` all work again — though the column_mapping change should stay, as it's a Delta-level concern, not a compute-level one). Also revisit (1) if Lakeflow adds `%run` support in a future release.
+
+**Related:** `2026-05-22 — openpyxl via notebook-scoped %pip on serverless` (below); `2026-05-22 — Serverless deployment` (below — the Sedona/boundaries deferral, which is the methodological consequence of the same deployment choice).
+
+---
+
 ## 2026-05-22 — openpyxl via notebook-scoped %pip on serverless
 
 **Decision:** Databricks serverless ships pandas without `openpyxl`, so notebooks that read `.xlsx` inputs install it via notebook-scoped `%pip install openpyxl` at the top of the notebook. v1 workaround; not a cluster library or workspace-installed dependency.

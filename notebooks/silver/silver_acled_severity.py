@@ -17,7 +17,7 @@
 
 # COMMAND ----------
 
-# MAGIC %run ./_common
+from _common import *  # noqa: F403,F401
 
 # COMMAND ----------
 
