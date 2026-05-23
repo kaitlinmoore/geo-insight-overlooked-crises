@@ -1,30 +1,29 @@
-# Databricks notebook source
-# MAGIC %md
-# MAGIC # Silver shared helpers (`_common`)
-# MAGIC
-# MAGIC Cross-cutting constants and tiny utilities every Silver DLT notebook
-# MAGIC depends on. Imported via `from _common import *` (Lakeflow Declarative
-# MAGIC Pipelines does not honor `%run`; see `docs/notes/serverless_constraints.md`).
-# MAGIC
-# MAGIC **Read patterns (one convention, applied everywhere):**
-# MAGIC - **Bronze inputs** are *external* to this DLT pipeline (written by the
-# MAGIC   separate Bronze loaders into `geo_insight.bronze.*`). Read them with
-# MAGIC   `spark.table(bronze("bronze_X"))` — `dlt.read` would not resolve a
-# MAGIC   table that isn't defined in this pipeline.
-# MAGIC - **Silver→Silver** dependencies (e.g. `silver_fts_flows` reading
-# MAGIC   `silver_population`) use `dlt.read("silver_X")` so DLT records the
-# MAGIC   lineage edge and orders the graph.
-# MAGIC - **Staging CSVs** that never got a Bronze table (`country_taxonomy_raw`,
-# MAGIC   `global_pcodes_raw`, the hand-built crosswalk) are read straight off the
-# MAGIC   volume with `spark.read.csv(staging(...))`.
-# MAGIC
-# MAGIC **DLT severity legend** (matches `docs/architecture.md` Layer-1 mapping):
-# MAGIC - `@dlt.expect_or_drop` — invalid rows dropped from the table.
-# MAGIC - `@dlt.expect` — warn-and-keep ("quarantine"): rows retained, the
-# MAGIC   violation is tracked in the DLT event log / data-quality metrics.
-# MAGIC - `@dlt.expect_or_fail` — contract violation that halts the pipeline.
+"""Silver shared helpers (`_common`).
 
-# COMMAND ----------
+Cross-cutting constants and tiny utilities every Silver DLT notebook
+depends on. Imported via `from _common import *` (Lakeflow Declarative
+Pipelines does not honor `%run`, and refuses to import files carrying
+the Databricks notebook header marker — this file is therefore a plain
+Python module, not a notebook; see `docs/notes/serverless_constraints.md`).
+
+**Read patterns (one convention, applied everywhere):**
+- **Bronze inputs** are *external* to this DLT pipeline (written by the
+  separate Bronze loaders into `geo_insight.bronze.*`). Read them with
+  `spark.table(bronze("bronze_X"))` — `dlt.read` would not resolve a
+  table that isn't defined in this pipeline.
+- **Silver→Silver** dependencies (e.g. `silver_fts_flows` reading
+  `silver_population`) use `dlt.read("silver_X")` so DLT records the
+  lineage edge and orders the graph.
+- **Staging CSVs** that never got a Bronze table (`country_taxonomy_raw`,
+  `global_pcodes_raw`, the hand-built crosswalk) are read straight off the
+  volume with `spark.read.csv(staging(...))`.
+
+**DLT severity legend** (matches `docs/architecture.md` Layer-1 mapping):
+- `@dlt.expect_or_drop` — invalid rows dropped from the table.
+- `@dlt.expect` — warn-and-keep ("quarantine"): rows retained, the
+  violation is tracked in the DLT event log / data-quality metrics.
+- `@dlt.expect_or_fail` — contract violation that halts the pipeline.
+"""
 
 from pyspark.sql import functions as F
 from pyspark.sql import Window
@@ -46,8 +45,6 @@ def staging(*parts):
     tail = "/".join(p.strip("/") for p in parts)
     return f"{VOLUME_BASE}/{tail}"
 
-
-# COMMAND ----------
 
 # Reusable expectation predicates (SQL strings passed to @dlt.expect*).
 # Keeping them here means the same column contract reads identically across

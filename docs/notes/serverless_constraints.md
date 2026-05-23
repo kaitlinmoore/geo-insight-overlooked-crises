@@ -39,6 +39,8 @@ standalone notebook runs (job tasks), not as a Lakeflow pipeline — magics
 work there. If we ever migrate Bronze to Lakeflow we have to do the same
 swap.
 
+**Follow-up (same day).** The import above failed at pipeline runtime with `Unable to import module _common ... appears to be a notebook` until the Databricks notebook header (`# Databricks notebook source`, `# MAGIC` blocks, `# COMMAND ----------` separators) was stripped from `notebooks/silver/_common.py`. Lakeflow notebook detection forces conversion of shared helper files to regular Python modules; `%run`-style notebook helpers are not viable in pipeline source code.
+
 ## See also
 
 - `DECISIONS.md` — 2026-05-22 clustered entry "Databricks serverless
