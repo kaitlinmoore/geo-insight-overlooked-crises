@@ -56,10 +56,9 @@ export function scoreColor(score: number): string {
   return `rgb(${last[0]},${last[1]},${last[2]})`;
 }
 
-type GJ = { type: string; features: Array<{ geometry: { coordinates: unknown } }> };
-
-/** [minLon, minLat, maxLon, maxLat] across a GeoJSON FeatureCollection. */
-export function bboxOf(fc: GJ): [number, number, number, number] {
+/** [minLon, minLat, maxLon, maxLat] across a GeoJSON FeatureCollection. Walks
+ * coordinate arrays at any depth and recurses into GeometryCollections. */
+export function bboxOf(fc: { features: Array<{ geometry: unknown }> }): [number, number, number, number] {
   let minX = 180, minY = 90, maxX = -180, maxY = -90;
   const walk = (c: unknown): void => {
     if (Array.isArray(c)) {
@@ -72,8 +71,12 @@ export function bboxOf(fc: GJ): [number, number, number, number] {
       } else {
         for (const v of c) walk(v);
       }
+    } else if (c && typeof c === "object") {
+      const g = c as { coordinates?: unknown; geometries?: unknown[] };
+      if (g.coordinates !== undefined) walk(g.coordinates);
+      if (Array.isArray(g.geometries)) for (const sub of g.geometries) walk(sub);
     }
   };
-  for (const f of fc.features) walk(f.geometry.coordinates);
+  for (const f of fc.features) walk(f.geometry);
   return [minX, minY, maxX, maxY];
 }

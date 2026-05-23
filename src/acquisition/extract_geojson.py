@@ -26,6 +26,7 @@ Run:  python src/acquisition/extract_geojson.py
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import geopandas as gpd
@@ -134,20 +135,34 @@ def _prune_islands(geom, min_area: float):
     return MultiPolygon(keep) if len(keep) > 1 else keep[0]
 
 
-def _dissolve(gdf: gpd.GeoDataFrame, by: str, keep: list[str]) -> gpd.GeoDataFrame:
-    """Group by `by`, union each group at full resolution with a precision grid
-    (robust against GEOS topology errors). Shared admin2 edges cancel exactly, so
-    the merged geometry is a clean solid polygon, NOT a sliver pile. No simplify
-    here — callers prune + simplify after. `keep` columns take the first value."""
+def _dissolve(gdf: gpd.GeoDataFrame, by: str, keep: list[str], log_every: int = 25) -> gpd.GeoDataFrame:
+    """Group by `by`, union each group at full resolution. Shared admin2 edges
+    cancel exactly, so the merged geometry is a clean solid polygon (no slivers).
+    No simplify here — callers prune + simplify after. `keep` columns take the
+    first value.
+
+    Uses `coverage_union_all` (orders of magnitude faster than `union_all` for
+    non-overlapping tiling polygons like admin2). Falls back to grid-snapped
+    `union_all` per group if coverage assumptions fail (near-coincident edges).
+    """
     geom_col = gdf.geometry.name
+    groups = list(gdf.groupby(by, sort=False))
     records = []
     geoms = []
-    for key, sub in gdf.groupby(by, sort=False):
-        geoms.append(shapely.union_all(sub[geom_col].values, grid_size=GRID))
+    t0 = time.time()
+    for i, (key, sub) in enumerate(groups, 1):
+        vals = sub[geom_col].values
+        try:
+            merged = shapely.coverage_union_all(vals)
+        except Exception:
+            merged = shapely.union_all(vals, grid_size=GRID)
+        geoms.append(merged)
         rec = {by: key}
         for c in keep:
             rec[c] = sub[c].iloc[0]
         records.append(rec)
+        if i % log_every == 0 or i == len(groups):
+            print(f"  ... dissolved {i}/{len(groups)} ({by}={key}, {len(vals)} parts, {time.time()-t0:.1f}s)", flush=True)
     return gpd.GeoDataFrame(records, geometry=gpd.GeoSeries(geoms), crs="EPSG:4326")
 
 

@@ -9,6 +9,12 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    // react-map-gl's pre-bundled chunk otherwise links its own React copy,
+    // tripping "Invalid hook call / two copies of React" at runtime.
+    dedupe: ["react", "react-dom"],
+  },
+  optimizeDeps: {
+    include: ["react-map-gl/maplibre", "maplibre-gl"],
   },
   server: {
     port: 5173,
