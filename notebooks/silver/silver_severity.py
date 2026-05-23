@@ -60,8 +60,24 @@ def silver_severity():
     cols = src.columns
 
     iso_c = _resolve(cols, r"^iso.?3$", r"iso.?3")
-    idx_c = _resolve(cols, r"severity\s*index", r"\bindex\b")
-    cat_c = _resolve(cols, r"severity\s*categor", r"categor")
+    # INFORM-era column names preferred. GCSI-era columns (SEVERITY CATEGORY /
+    # CRISIS SEVERITY) exist in the unioned bronze table because of the GCSI->
+    # INFORM rebrand in Sep 2020 but are NULL for INFORM-era rows. Anchoring
+    # the patterns and trying INFORM names first picks the column that
+    # actually has data.
+    
+    idx_c = _resolve(
+        cols,
+        r"^inform\s+severity\s+index(?:__dup\d+)?$",  # INFORM era
+        r"^crisis\s+severity(?:__dup\d+)?$",          # GCSI fallback
+        r"^severity\s*index$",                         # generic last resort
+    )
+    cat_c = _resolve(
+        cols,
+        r"^inform\s+severity\s+category(?:__dup\d+)?$",  # INFORM era
+        r"^severity\s+category(?:__dup\d+)?$",           # GCSI fallback
+        r"^categor",                                      # generic last resort
+    )
     trend_c = _resolve(cols, r"trend")
     rel_c = _resolve(cols, r"reliab")
 
